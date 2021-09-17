@@ -1,0 +1,133 @@
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'maven-publish'
+    id 'org.cadixdev.licenser' version '0.6.1'
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+
+group 'net.covers1624'
+archivesBaseName = "FastRemapper"
+version '0.1.0'
+
+version = "$version." + (System.getenv("BUILD_NUMBER") ?: "1")
+println "Starting build of ${archivesBaseName}, Version: ${version}"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven { url "https://maven.minecraftforge.net/" }
+}
+
+configurations {
+    shadow
+    api.extendsFrom shadow
+}
+
+dependencies {
+    shadow 'org.apache.logging.log4j:log4j-core:2.14.1'
+
+    shadow 'net.covers1624:Quack:0.3.7.29'
+
+    shadow 'net.sf.jopt-simple:jopt-simple:5.0.4'
+    shadow 'org.ow2.asm:asm:9.2'
+    shadow('org.ow2.asm:asm-commons:9.2') {
+        exclude module: 'asm-tree'
+    }
+
+    shadow 'net.minecraftforge:srgutils:0.4.3'
+}
+
+def commonManifest = {
+    attributes 'Main-Class': 'net.covers1624.fastremap.FastRemapper'
+    attributes 'Multi-Release': 'true'
+}
+
+jar {
+    manifest commonManifest
+    from file("LICENSE.txt")
+}
+
+shadowJar {
+    configurations = [project.configurations.shadow]
+    manifest commonManifest
+
+    minimize {
+        exclude(dependency('org.apache.logging.log4j:.*:.*'))
+    }
+
+    exclude 'module-info.class'
+    transform(com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer)
+    from file("LICENSE.txt")
+}
+
+task srcJar(type: Jar) {
+    classifier 'sources'
+    from sourceSets.main.allSource
+    from file("LICENSE.txt")
+}
+
+license {
+    header = file("LICENSE-header.txt")
+    properties {
+        year = new Date().format("yyyy")
+    }
+
+    include 'net/covers1624/fastremap/**'
+    newLine false
+}
+
+publishing {
+    repositories {
+        if (System.getenv('MAVEN_PASS')) {
+            maven {
+                url "https://nexus.covers1624.net/repository/maven-releases/"
+                credentials {
+                    username 'covers1624'
+                    password System.getenv('MAVEN_PASS')
+                }
+            }
+        }
+    }
+    publications {
+        FastRemapper(MavenPublication) {
+            groupId project.group
+            artifactId project.archivesBaseName
+            version project.version
+            from components["java"]
+            artifact srcJar
+
+            pom {
+                name = archivesBaseName
+                description = archivesBaseName
+                //The publish plugin doesnt like GString's here apparently..
+                url = "https://github.com/covers1624/${archivesBaseName}".toString()
+                scm {
+                    url = "https://github.com/covers1624/${archivesBaseName}".toString()
+                    connection = "scm:git:git://github.com/covers1624/${archivesBaseName}.git".toString()
+                    connection = "scm:git:git@github.com:covers1624/${archivesBaseName}.git".toString()
+                }
+
+                issueManagement {
+                    system = 'github'
+                    url = "https://github.com/covers1624/${archivesBaseName}/issues".toString()
+                }
+                licenses {
+                    license {
+                        name = "MIT"
+                        url = "https://raw.githubusercontent.com/covers1624/${archivesBaseName}/master/LICENSE.txt".toString()
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'covers1624'
+                        name = 'covers1624'
+                    }
+                }
+            }
+        }
+    }
+}
