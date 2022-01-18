@@ -34,7 +34,7 @@ public class ASMClassRemapper extends ClassRemapper {
     @Override
     public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
         MethodVisitor methodVisitor = super.visitMethod(access, name, descriptor, signature, exceptions);
-        return methodVisitor == null ? null : createMethodRemapper(descriptor, access, methodVisitor);
+        return methodVisitor == null ? null : createMethodRemapper(name, descriptor, access, methodVisitor);
     }
 
     @Override
@@ -42,7 +42,7 @@ public class ASMClassRemapper extends ClassRemapper {
         return methodVisitor;
     }
 
-    private MethodVisitor createMethodRemapper(String desc, int access, MethodVisitor methodVisitor) {
+    private MethodVisitor createMethodRemapper(String mName, String desc, int access, MethodVisitor methodVisitor) {
         int paramWidth = getParamWidth(desc);
         boolean isStatic = (access & Opcodes.ACC_STATIC) != 0;
         return new MethodRemapper(api, methodVisitor, remapper) {
@@ -52,7 +52,7 @@ public class ASMClassRemapper extends ClassRemapper {
                 if (index == 0 && !isStatic) {
                     name = "this";
                 } else if (index < paramWidth) {
-                    name = "param" + (index - (isStatic ? 0 : 1));
+                    name = "param_" + mName + "_" + (index - (isStatic ? 0 : 1));
                 } else {
                     name = "var" + index;
                 }
