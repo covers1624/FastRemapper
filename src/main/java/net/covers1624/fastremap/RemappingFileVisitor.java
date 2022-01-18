@@ -27,15 +27,17 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     private final Path toRoot;
     private final IMappingFile mappings;
     private final Predicate<String> remapFilter;
+    private final Predicate<String> stripFilter;
     private final ASMRemapper remapper;
     private int remapCount = 0;
 
-    public RemappingFileVisitor(boolean verbose, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter) {
+    public RemappingFileVisitor(boolean verbose, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
         this.verbose = verbose;
         this.fromRoot = fromRoot;
         this.toRoot = toRoot;
         this.mappings = mappings;
         this.remapFilter = remapFilter;
+        this.stripFilter = stripFilter;
         remapper = new ASMRemapper(fromRoot, mappings);
     }
 
@@ -43,7 +45,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     public FileVisitResult visitFile(Path inFile, BasicFileAttributes attrs) throws IOException {
         String rel = fromRoot.relativize(inFile).toString();
         // Strip Signing data.
-        if (rel.endsWith(".SF") || rel.endsWith(".DSA") || rel.endsWith(".RSA")) return FileVisitResult.CONTINUE;
+        if (rel.endsWith(".SF") || rel.endsWith(".DSA") || rel.endsWith(".RSA") || stripFilter.test(rel)) return FileVisitResult.CONTINUE;
 
         if (rel.endsWith("META-INF/MANIFEST.MF")) {
             return processManifest(inFile, rel);

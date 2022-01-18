@@ -55,6 +55,9 @@ public class FastRemapper {
         OptionSpec<String> excludeOpt = parser.acceptsAll(asList("e", "exclude"), "Excludes a class or package from being remapped. Comma separated. Example: 'com.google.,org.apache.'")
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
+        OptionSpec<String> stripOpt = parser.acceptsAll(asList("s", "strip"), "Strip files from the output. Comma separated. Example: 'com/google,org/apache/,some/file.txt'")
+                .withRequiredArg()
+                .withValuesSeparatedBy(",");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(asList("v", "verbose"), "Enables verbose logging.");
 
@@ -96,12 +99,20 @@ public class FastRemapper {
             return -1;
         }
         List<String> excludes = optSet.valuesOf(excludeOpt);
+        List<String> strips = optSet.valuesOf(stripOpt);
 
         Predicate<String> remapFilter = e -> {
             for (String exclude : excludes) {
                 if (e.startsWith(exclude)) return false;
             }
             return true;
+        };
+
+        Predicate<String> stripFilter = e -> {
+            for (String exclude : strips) {
+                if (e.startsWith(exclude)) return true;
+            }
+            return false;
         };
 
         boolean flipMappings = optSet.has(flipMappingsOpt);
@@ -130,7 +141,7 @@ public class FastRemapper {
              FileSystem outJar = IOUtils.getJarFileSystem(outputPath, true)) {
             Path fromRoot = inputJar.getPath("/");
             Path toRoot = outJar.getPath("/");
-            RemappingFileVisitor visitor = new RemappingFileVisitor(verbose, fromRoot, toRoot, mappings, remapFilter);
+            RemappingFileVisitor visitor = new RemappingFileVisitor(verbose, fromRoot, toRoot, mappings, remapFilter, stripFilter);
             Files.walkFileTree(fromRoot, visitor);
             remapCount = visitor.getRemapCount();
         }
