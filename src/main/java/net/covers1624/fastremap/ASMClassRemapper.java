@@ -3,7 +3,6 @@ package net.covers1624.fastremap;
 import org.objectweb.asm.*;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.MethodRemapper;
-import org.objectweb.asm.commons.Remapper;
 
 import java.util.Arrays;
 import java.util.List;
@@ -21,15 +20,17 @@ public class ASMClassRemapper extends ClassRemapper {
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
                     false)
     );
+    private final ASMRemapper remapper;
 
-    public ASMClassRemapper(ClassVisitor classVisitor, Remapper remapper) {
+    public ASMClassRemapper(ClassVisitor classVisitor, ASMRemapper remapper) {
         super(Opcodes.ASM9, classVisitor, remapper);
+        this.remapper = remapper;
     }
 
     @Override
     public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
         MethodVisitor methodVisitor = super.visitMethod(access, name, descriptor, signature, exceptions);
-        return methodVisitor == null ? null : createMethodRemapper(name, descriptor, access, methodVisitor);
+        return methodVisitor == null ? null : createMethodRemapper(descriptor, access, methodVisitor);
     }
 
     @Override
@@ -37,7 +38,7 @@ public class ASMClassRemapper extends ClassRemapper {
         return methodVisitor;
     }
 
-    private MethodVisitor createMethodRemapper(String mName, String desc, int access, MethodVisitor methodVisitor) {
+    private MethodVisitor createMethodRemapper(String desc, int access, MethodVisitor methodVisitor) {
         int paramWidth = getParamWidth(desc);
         boolean isStatic = (access & Opcodes.ACC_STATIC) != 0;
         return new MethodRemapper(api, methodVisitor, remapper) {
@@ -46,8 +47,8 @@ public class ASMClassRemapper extends ClassRemapper {
             public void visitLocalVariable(String name, String descriptor, String signature, Label start, Label end, int index) {
                 if (index == 0 && !isStatic) {
                     name = "this";
-                } else if (index < paramWidth) {
-                    name = "param_" + mName + "_" + (index - (isStatic ? 0 : 1));
+                } else if (index < (isStatic ? paramWidth : paramWidth + 1)) {
+                    name = "p_" + ASMClassRemapper.this.remapper.nextParam();
                 } else {
                     name = "var" + index;
                 }
