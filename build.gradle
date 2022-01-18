@@ -2,7 +2,6 @@ plugins {
     id 'java'
     id 'java-library'
     id 'maven-publish'
-    id 'org.cadixdev.licenser' version '0.6.1'
     id 'com.github.johnrengelman.shadow' version '7.0.0'
 }
 
@@ -67,16 +66,6 @@ task srcJar(type: Jar) {
     classifier 'sources'
     from sourceSets.main.allSource
     from file("LICENSE.txt")
-}
-
-license {
-    header = file("LICENSE-header.txt")
-    properties {
-        year = new Date().format("yyyy")
-    }
-
-    include 'net/covers1624/fastremap/**'
-    newLine false
 }
 
 publishing {
