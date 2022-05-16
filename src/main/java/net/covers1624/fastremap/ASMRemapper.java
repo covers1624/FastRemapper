@@ -21,7 +21,6 @@ public class ASMRemapper extends Remapper {
     private final Path root;
     private final IMappingFile mappings;
     private final Map<String, String[]> hierarchy = new HashMap<>();
-    private final Map<String, String[]> mergedHierarchy = new HashMap<>();
     private final Map<String, Map<String, String>> fieldCache = new HashMap<>();
     private final Map<String, Map<String, String>> methodCache = new HashMap<>();
     private final AtomicInteger paramCounter = new AtomicInteger();
@@ -58,8 +57,8 @@ public class ASMRemapper extends Remapper {
 
         String ret = name;
         IMappingFile.IField field = clazz.getField(name);
-        if (field == null) {
-            String[] parents = getParents(owner);
+        if (field == null || !field.getDescriptor().equals(descriptor)) {
+            String[] parents = getDirectSuperTypes(owner);
             for (String parent : parents) {
                 String mapped = mapFieldName(parent, name, descriptor);
                 if (!mapped.equals(name)) {
@@ -89,7 +88,7 @@ public class ASMRemapper extends Remapper {
         String ret = name;
         IMappingFile.IMethod method = clazz.getMethod(name, descriptor);
         if (method == null) {
-            String[] parents = getParents(owner);
+            String[] parents = getDirectSuperTypes(owner);
             for (String parent : parents) {
                 String mapped = mapMethodName(parent, name, descriptor);
                 if (!mapped.equals(name)) {
@@ -103,23 +102,6 @@ public class ASMRemapper extends Remapper {
 
         cache.put(name + descriptor, ret);
         return ret;
-    }
-
-    private String[] getParents(String cName) {
-        String[] existing = mergedHierarchy.get(cName);
-        if (existing != null) return existing;
-
-        Set<String> allSuperTypes = new HashSet<>();
-        String[] directSuperTypes = getDirectSuperTypes(cName);
-        for (String directSuper : directSuperTypes) {
-            if (allSuperTypes.add(directSuper)) {
-                Collections.addAll(allSuperTypes, getParents(directSuper));
-            }
-        }
-
-        String[] hierarchy = allSuperTypes.toArray(new String[0]);
-        mergedHierarchy.put(cName, hierarchy);
-        return hierarchy;
     }
 
     private String[] getDirectSuperTypes(String cName) {
