@@ -20,11 +20,41 @@ public class ASMClassRemapper extends ClassRemapper {
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
                     false)
     );
+    private final boolean fixSource;
     private final ASMRemapper remapper;
 
-    public ASMClassRemapper(ClassVisitor classVisitor, ASMRemapper remapper) {
+    private String cName;
+
+    public ASMClassRemapper(boolean fixSource, ClassVisitor classVisitor, ASMRemapper remapper) {
         super(Opcodes.ASM9, classVisitor, remapper);
+        this.fixSource = fixSource;
         this.remapper = remapper;
+    }
+
+    @Override
+    public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+        super.visit(version, access, name, signature, superName, interfaces);
+        cName = remapper.mapType(name);
+    }
+
+    @Override
+    public void visitEnd() {
+        if (fixSource) {
+            assert cName != null;
+
+            String name = cName;
+            int lastSlash = cName.lastIndexOf('/');
+            if (lastSlash != -1) {
+                name = name.substring(lastSlash + 1);
+            }
+            int firstDollar = name.indexOf('$');
+            if (firstDollar != -1) {
+                name = name.substring(0, firstDollar);
+            }
+            name += ".java";
+            visitSource(name, null);
+        }
+        super.visitEnd();
     }
 
     @Override

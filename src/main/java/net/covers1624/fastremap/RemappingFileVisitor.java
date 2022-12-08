@@ -23,6 +23,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     private static final Logger LOGGER = LogManager.getLogger();
 
     private final boolean verbose;
+    private final boolean fixSource;
     private final Path fromRoot;
     private final Path toRoot;
     private final IMappingFile mappings;
@@ -31,8 +32,9 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     private final ASMRemapper remapper;
     private int remapCount = 0;
 
-    public RemappingFileVisitor(boolean verbose, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
+    public RemappingFileVisitor(boolean verbose, boolean fixSource, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
         this.verbose = verbose;
+        this.fixSource = fixSource;
         this.fromRoot = fromRoot;
         this.toRoot = toRoot;
         this.mappings = mappings;
@@ -65,7 +67,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
         try (InputStream is = Files.newInputStream(inFile)) {
             ClassReader reader = new ClassReader(is);
             remapper.collectDirectSupertypes(reader);
-            ClassRemapper remapper = new ASMClassRemapper(writer, this.remapper);
+            ClassRemapper remapper = new ASMClassRemapper(fixSource, writer, this.remapper);
             reader.accept(remapper, 0);
         }
 
