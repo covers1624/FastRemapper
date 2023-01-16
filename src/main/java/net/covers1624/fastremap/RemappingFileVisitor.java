@@ -4,8 +4,8 @@ import net.minecraftforge.srgutils.IMappingFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.commons.ClassRemapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -67,8 +67,11 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
         try (InputStream is = Files.newInputStream(inFile)) {
             ClassReader reader = new ClassReader(is);
             remapper.collectDirectSupertypes(reader);
-            ClassRemapper remapper = new ASMClassRemapper(fixSource, writer, this.remapper);
-            reader.accept(remapper, 0);
+            ClassVisitor cv = writer;
+            if (fixSource) {
+                cv = new SourceAttributeFixer(cv);
+            }
+            reader.accept(new ASMClassRemapper(cv, remapper), 0);
         }
 
         if (verbose) {

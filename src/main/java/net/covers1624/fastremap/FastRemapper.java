@@ -59,7 +59,7 @@ public class FastRemapper {
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
 
-        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes. ");
+        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes.");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(asList("v", "verbose"), "Enables verbose logging.");
 
