@@ -60,6 +60,7 @@ public class FastRemapper {
                 .withValuesSeparatedBy(",");
 
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes.");
+        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(asList("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(asList("v", "verbose"), "Enables verbose logging.");
 
@@ -122,6 +123,7 @@ public class FastRemapper {
         boolean verbose = optSet.has(verboseOpt);
 
         boolean fixSource = optSet.has(fixSourceOpt);
+        boolean fixParamAnns = optSet.has(fixParamAnnotations);
 
         LOGGER.info("Fast Remapper.");
         LOGGER.info(" Input   : " + inputPath.toAbsolutePath());
@@ -145,7 +147,7 @@ public class FastRemapper {
              FileSystem outJar = IOUtils.getJarFileSystem(outputPath, true)) {
             Path fromRoot = inputJar.getPath("/");
             Path toRoot = outJar.getPath("/");
-            RemappingFileVisitor visitor = new RemappingFileVisitor(verbose, fixSource, fromRoot, toRoot, mappings, remapFilter, stripFilter);
+            RemappingFileVisitor visitor = new RemappingFileVisitor(verbose, fixSource, fixParamAnns, fromRoot, toRoot, mappings, remapFilter, stripFilter);
             Files.walkFileTree(fromRoot, visitor);
             remapCount = visitor.getRemapCount();
         }

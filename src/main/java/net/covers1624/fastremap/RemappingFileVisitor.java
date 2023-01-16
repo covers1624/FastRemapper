@@ -24,6 +24,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
 
     private final boolean verbose;
     private final boolean fixSource;
+    private final boolean fixCtorAnnotations;
     private final Path fromRoot;
     private final Path toRoot;
     private final IMappingFile mappings;
@@ -32,9 +33,10 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     private final ASMRemapper remapper;
     private int remapCount = 0;
 
-    public RemappingFileVisitor(boolean verbose, boolean fixSource, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
+    public RemappingFileVisitor(boolean verbose, boolean fixSource, boolean fixCtorAnnotations, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
         this.verbose = verbose;
         this.fixSource = fixSource;
+        this.fixCtorAnnotations = fixCtorAnnotations;
         this.fromRoot = fromRoot;
         this.toRoot = toRoot;
         this.mappings = mappings;
@@ -70,6 +72,9 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
             ClassVisitor cv = writer;
             if (fixSource) {
                 cv = new SourceAttributeFixer(cv);
+            }
+            if (fixCtorAnnotations) {
+                cv = new CtorAnnotationFixer(cv);
             }
             reader.accept(new ASMClassRemapper(cv, remapper), 0);
         }
