@@ -1,6 +1,5 @@
 package net.covers1624.fastremap;
 
-import net.minecraftforge.srgutils.IMappingFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.objectweb.asm.ClassReader;
@@ -12,7 +11,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.function.Predicate;
 import java.util.jar.Manifest;
 
 /**
@@ -22,40 +20,30 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private final boolean verbose;
-    private final boolean fixSource;
-    private final boolean fixCtorAnnotations;
-    private final Path fromRoot;
-    private final Path toRoot;
-    private final IMappingFile mappings;
-    private final Predicate<String> remapFilter;
-    private final Predicate<String> stripFilter;
-    private final ASMRemapper remapper;
+    private final FastRemapper remapper;
+    private final Path inputRoot;
+    private final Path outputRoot;
+    private final ASMRemapper asmRemapper;
     private int remapCount = 0;
 
-    public RemappingFileVisitor(boolean verbose, boolean fixSource, boolean fixCtorAnnotations, Path fromRoot, Path toRoot, IMappingFile mappings, Predicate<String> remapFilter, Predicate<String> stripFilter) {
-        this.verbose = verbose;
-        this.fixSource = fixSource;
-        this.fixCtorAnnotations = fixCtorAnnotations;
-        this.fromRoot = fromRoot;
-        this.toRoot = toRoot;
-        this.mappings = mappings;
-        this.remapFilter = remapFilter;
-        this.stripFilter = stripFilter;
-        remapper = new ASMRemapper(fromRoot, mappings);
+    public RemappingFileVisitor(FastRemapper remapper) {
+        this.remapper = remapper;
+        inputRoot = remapper.getInputRoot();
+        outputRoot = remapper.getOutputRoot();
+        asmRemapper = remapper.getAsmRemapper();
     }
 
     @Override
     public FileVisitResult visitFile(Path inFile, BasicFileAttributes attrs) throws IOException {
-        String rel = fromRoot.relativize(inFile).toString();
+        String rel = inputRoot.relativize(inFile).toString();
         // Strip Signing data.
-        if (rel.endsWith(".SF") || rel.endsWith(".DSA") || rel.endsWith(".RSA") || stripFilter.test(rel)) return FileVisitResult.CONTINUE;
+        if (rel.endsWith(".SF") || rel.endsWith(".DSA") || rel.endsWith(".RSA") || remapper.isStripped(rel)) return FileVisitResult.CONTINUE;
 
         if (rel.endsWith("META-INF/MANIFEST.MF")) {
             return processManifest(inFile, rel);
         }
 
-        if (!rel.endsWith(".class") || !remapFilter.test(rel.replace('/', '.'))) {
+        if (!rel.endsWith(".class") || remapper.isExcluded(rel.replace('/', '.'))) {
             return copyRaw(inFile, rel);
         }
 
@@ -63,26 +51,28 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
         if (cName.startsWith("/")) {
             cName = cName.substring(1);
         }
-        String mapped = mappings.remapClass(cName);
+        String mapped = remapper.getMappings().remapClass(cName);
 
         ClassWriter writer = new ClassWriter(0);
         try (InputStream is = Files.newInputStream(inFile)) {
             ClassReader reader = new ClassReader(is);
-            remapper.collectDirectSupertypes(reader);
+            asmRemapper.collectDirectSupertypes(reader);
             ClassVisitor cv = writer;
-            if (fixSource) {
+            // Applied in reverse order to what's shown here, remapper is always first.
+            if (remapper.isFixSource()) {
                 cv = new SourceAttributeFixer(cv);
             }
-            if (fixCtorAnnotations) {
+            if (remapper.isFixParamAnns()) {
                 cv = new CtorAnnotationFixer(cv);
             }
-            reader.accept(new ASMClassRemapper(cv, remapper), 0);
+            cv = new ASMClassRemapper(cv, remapper);
+            reader.accept(cv, 0);
         }
 
-        if (verbose) {
+        if (remapper.isVerbose()) {
             LOGGER.info("Mapping {} -> {}", cName, mapped);
         }
-        Path outFile = toRoot.resolve(mapped + ".class");
+        Path outFile = outputRoot.resolve(mapped + ".class");
         Files.createDirectories(outFile.getParent());
         try (OutputStream os = Files.newOutputStream(outFile)) {
             os.write(writer.toByteArray());
@@ -98,7 +88,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     }
 
     private FileVisitResult processManifest(Path inFile, String rel) throws IOException {
-        Path outFile = toRoot.resolve(rel);
+        Path outFile = outputRoot.resolve(rel);
         Files.createDirectories(outFile.getParent());
         try (InputStream is = Files.newInputStream(inFile);
              OutputStream os = Files.newOutputStream(outFile, StandardOpenOption.CREATE)) {
@@ -112,7 +102,7 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
     }
 
     private FileVisitResult copyRaw(Path inFile, String rel) throws IOException {
-        Path outFile = toRoot.resolve(rel);
+        Path outFile = outputRoot.resolve(rel);
         Files.createDirectories(outFile.getParent());
         Files.copy(inFile, outFile);
         return FileVisitResult.CONTINUE;

@@ -37,6 +37,9 @@ dependencies {
     }
 
     shadow 'net.minecraftforge:srgutils:0.4.3'
+
+    compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
+    compileOnly 'org.jetbrains:annotations:22.0.0'
 }
 
 def commonManifest = {

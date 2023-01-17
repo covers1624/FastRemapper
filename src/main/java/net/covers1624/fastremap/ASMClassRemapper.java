@@ -20,11 +20,13 @@ public class ASMClassRemapper extends ClassRemapper {
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
                     false)
     );
-    private final ASMRemapper remapper;
+    private final FastRemapper remapper;
+    private final ASMRemapper asmRemapper;
 
-    public ASMClassRemapper(ClassVisitor classVisitor, ASMRemapper remapper) {
-        super(Opcodes.ASM9, classVisitor, remapper);
+    public ASMClassRemapper(ClassVisitor cv, FastRemapper remapper) {
+        super(Opcodes.ASM9, cv, remapper.getAsmRemapper());
         this.remapper = remapper;
+        this.asmRemapper = remapper.getAsmRemapper();
     }
 
     @Override
@@ -41,7 +43,7 @@ public class ASMClassRemapper extends ClassRemapper {
     private MethodVisitor createMethodRemapper(String desc, int access, MethodVisitor methodVisitor) {
         int paramWidth = getParamWidth(desc);
         boolean isStatic = (access & Opcodes.ACC_STATIC) != 0;
-        return new MethodRemapper(api, methodVisitor, remapper) {
+        return new MethodRemapper(api, methodVisitor, asmRemapper) {
 
             @Override
             public void visitLocalVariable(String name, String descriptor, String signature, Label start, Label end, int index) {

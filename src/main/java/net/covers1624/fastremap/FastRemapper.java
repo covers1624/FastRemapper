@@ -8,13 +8,17 @@ import net.covers1624.quack.io.IOUtils;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.function.Predicate;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Arrays.asList;
 
@@ -84,7 +88,7 @@ public class FastRemapper {
 
         Path outputPath = optSet.valueOf(outputOpt);
         if (Files.exists(outputPath) && !Files.isRegularFile(outputPath)) {
-            LOGGER.error("Expected '--output' not exist or be a file.");
+            LOGGER.error("Expected '--output' to not exist or be a file.");
             parser.printHelpOn(System.err);
             return -1;
         }
@@ -104,20 +108,6 @@ public class FastRemapper {
         List<String> excludes = optSet.valuesOf(excludeOpt);
         List<String> strips = optSet.valuesOf(stripOpt);
 
-        Predicate<String> remapFilter = e -> {
-            for (String exclude : excludes) {
-                if (e.startsWith(exclude)) return false;
-            }
-            return true;
-        };
-
-        Predicate<String> stripFilter = e -> {
-            for (String exclude : strips) {
-                if (e.startsWith(exclude)) return true;
-            }
-            return false;
-        };
-
         boolean flipMappings = optSet.has(flipMappingsOpt);
 
         boolean verbose = optSet.has(verboseOpt);
@@ -125,6 +115,53 @@ public class FastRemapper {
         boolean fixSource = optSet.has(fixSourceOpt);
         boolean fixParamAnns = optSet.has(fixParamAnnotations);
 
+        FastRemapper remapper = new FastRemapper(
+                inputPath,
+                outputPath,
+                mappingsPath
+        );
+        remapper.excludes(excludes);
+        remapper.strips(strips);
+        remapper.flipMappings(flipMappings);
+        remapper.verbose(verbose);
+        remapper.fixSource(fixSource);
+        remapper.fixParamAnns(fixParamAnns);
+
+        remapper.run();
+        return 0;
+    }
+
+    private final Path inputPath;
+
+    private final Path outputPath;
+    private final Path mappingsPath;
+
+    private final List<String> excludes = new LinkedList<>();
+    private final List<String> strips = new LinkedList<>();
+    private boolean flipMappings;
+    private boolean verbose;
+    private boolean fixSource;
+    private boolean fixParamAnns;
+
+    @Nullable
+    private IMappingFile mappings;
+    @Nullable
+    private Path inputRoot;
+    @Nullable
+    private Path outputRoot;
+
+    @Nullable
+    private ASMRemapper asmRemapper;
+
+    private final AtomicInteger paramCounter = new AtomicInteger();
+
+    public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath) {
+        this.inputPath = inputPath;
+        this.outputPath = outputPath;
+        this.mappingsPath = mappingsPath;
+    }
+
+    public void run() throws IOException {
         LOGGER.info("Fast Remapper.");
         LOGGER.info(" Input   : " + inputPath.toAbsolutePath());
         LOGGER.info(" Output  : " + outputPath.toAbsolutePath());
@@ -132,7 +169,6 @@ public class FastRemapper {
         LOGGER.info("");
 
         LOGGER.info("Loading mappings..");
-        IMappingFile mappings;
         try (InputStream is = Files.newInputStream(mappingsPath)) {
             mappings = IMappingFile.load(is);
             if (flipMappings) {
@@ -145,17 +181,52 @@ public class FastRemapper {
         int remapCount;
         try (FileSystem inputJar = IOUtils.getJarFileSystem(inputPath, true);
              FileSystem outJar = IOUtils.getJarFileSystem(outputPath, true)) {
-            Path fromRoot = inputJar.getPath("/");
-            Path toRoot = outJar.getPath("/");
-            RemappingFileVisitor visitor = new RemappingFileVisitor(verbose, fixSource, fixParamAnns, fromRoot, toRoot, mappings, remapFilter, stripFilter);
-            Files.walkFileTree(fromRoot, visitor);
+            inputRoot = inputJar.getPath("/");
+            outputRoot = outJar.getPath("/");
+            asmRemapper = new ASMRemapper(inputRoot, mappings);
+
+            RemappingFileVisitor visitor = new RemappingFileVisitor(this);
+            Files.walkFileTree(inputRoot, visitor);
             remapCount = visitor.getRemapCount();
         }
         long end = System.nanoTime();
         LOGGER.info("Done. Remapped {} classes in {}", remapCount, formatDuration(end - start));
-
-        return 0;
     }
+
+    public final boolean isExcluded(String path) {
+        for (String exclude : excludes) {
+            if (path.startsWith(exclude)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public final boolean isStripped(String path) {
+        for (String exclude : strips) {
+            if (path.startsWith(exclude)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // @formatter:off
+    public final IMappingFile getMappings() { return Objects.requireNonNull(mappings); }
+    public final Path getInputRoot() { return Objects.requireNonNull(inputRoot); }
+    public final Path getOutputRoot() { return Objects.requireNonNull(outputRoot); }
+    public final ASMRemapper getAsmRemapper() { return Objects.requireNonNull(asmRemapper); }
+    public final boolean isVerbose() { return verbose; }
+    public final boolean isFixSource() { return fixSource; }
+    public final boolean isFixParamAnns() { return fixParamAnns; }
+    public final int nextParam() { return paramCounter.getAndIncrement(); }
+    public final FastRemapper excludes(List<String> excludes) { this.excludes.addAll(excludes); return this; }
+    public final FastRemapper strips(List<String> strips) { this.strips.addAll(strips); return this; }
+    public final FastRemapper flipMappings(boolean flipMappings) { this.flipMappings = flipMappings; return this; }
+    public final FastRemapper verbose(boolean verbose) { this.verbose = verbose; return this; }
+    public final FastRemapper fixSource(boolean fixSource) { this.fixSource = fixSource; return this; }
+    public final FastRemapper fixParamAnns(boolean fixParamAnn) { this.fixParamAnns = fixParamAnn; return this; }
+    // @formatter:on
 
     public static String formatDuration(long elapsedTimeInNs) {
         StringBuilder result = new StringBuilder();

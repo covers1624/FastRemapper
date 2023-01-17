@@ -8,8 +8,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by covers1624 on 17/9/21.
@@ -23,7 +23,6 @@ public class ASMRemapper extends Remapper {
     private final Map<String, String[]> hierarchy = new HashMap<>();
     private final Map<String, Map<String, String>> fieldCache = new HashMap<>();
     private final Map<String, Map<String, String>> methodCache = new HashMap<>();
-    private final AtomicInteger paramCounter = new AtomicInteger();
 
     public ASMRemapper(Path root, IMappingFile mappings) {
         this.root = root;
@@ -32,10 +31,6 @@ public class ASMRemapper extends Remapper {
             fieldCache.put(clazz.getOriginal(), new HashMap<>());
             methodCache.put(clazz.getOriginal(), new HashMap<>());
         }
-    }
-
-    public int nextParam() {
-        return paramCounter.getAndIncrement();
     }
 
     @Override
