@@ -66,6 +66,9 @@ public class RemappingFileVisitor extends SimpleFileVisitor<Path> {
                 cv = new CtorAnnotationFixer(cv);
             }
             cv = new ASMClassRemapper(cv, remapper);
+            if (remapper.isFixLocals()) {
+                cv = new LocalVariableFixer(cv, remapper);
+            }
             reader.accept(cv, 0);
         }
 

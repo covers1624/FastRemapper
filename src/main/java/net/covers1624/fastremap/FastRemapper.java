@@ -9,15 +9,14 @@ import net.minecraftforge.srgutils.IMappingFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.objectweb.asm.ClassReader;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Arrays.asList;
@@ -63,6 +62,7 @@ public class FastRemapper {
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
 
+        OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(asList("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes.");
         OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(asList("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
 
@@ -112,6 +112,7 @@ public class FastRemapper {
 
         boolean verbose = optSet.has(verboseOpt);
 
+        boolean fixLocals = optSet.has(fixLocalsOpt);
         boolean fixSource = optSet.has(fixSourceOpt);
         boolean fixParamAnns = optSet.has(fixParamAnnotations);
 
@@ -124,6 +125,7 @@ public class FastRemapper {
         remapper.strips(strips);
         remapper.flipMappings(flipMappings);
         remapper.verbose(verbose);
+        remapper.fixLocals(fixLocals);
         remapper.fixSource(fixSource);
         remapper.fixParamAnns(fixParamAnns);
 
@@ -140,6 +142,7 @@ public class FastRemapper {
     private final List<String> strips = new LinkedList<>();
     private boolean flipMappings;
     private boolean verbose;
+    private boolean fixLocals;
     private boolean fixSource;
     private boolean fixParamAnns;
 
@@ -153,7 +156,7 @@ public class FastRemapper {
     @Nullable
     private ASMRemapper asmRemapper;
 
-    private final AtomicInteger paramCounter = new AtomicInteger();
+    private final Map<String, Integer> methodDepth = new HashMap<>();
 
     public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath) {
         this.inputPath = inputPath;
@@ -217,16 +220,44 @@ public class FastRemapper {
     public final Path getOutputRoot() { return Objects.requireNonNull(outputRoot); }
     public final ASMRemapper getAsmRemapper() { return Objects.requireNonNull(asmRemapper); }
     public final boolean isVerbose() { return verbose; }
+    public final boolean isFixLocals() { return fixLocals; }
     public final boolean isFixSource() { return fixSource; }
     public final boolean isFixParamAnns() { return fixParamAnns; }
-    public final int nextParam() { return paramCounter.getAndIncrement(); }
     public final FastRemapper excludes(List<String> excludes) { this.excludes.addAll(excludes); return this; }
     public final FastRemapper strips(List<String> strips) { this.strips.addAll(strips); return this; }
     public final FastRemapper flipMappings(boolean flipMappings) { this.flipMappings = flipMappings; return this; }
     public final FastRemapper verbose(boolean verbose) { this.verbose = verbose; return this; }
+    public final FastRemapper fixLocals(boolean fixLocals) { this.fixLocals = fixLocals; return this; }
     public final FastRemapper fixSource(boolean fixSource) { this.fixSource = fixSource; return this; }
     public final FastRemapper fixParamAnns(boolean fixParamAnn) { this.fixParamAnns = fixParamAnn; return this; }
     // @formatter:on
+
+    public void storeMethodDepth(String owner, String name, String desc, int depth) {
+        methodDepth.put(owner + "." + name + desc, depth);
+    }
+
+    public int getMethodDepth(String owner, String method) {
+        String key = owner + "." + method;
+        Integer depth = methodDepth.get(key);
+        if (depth == null) {
+            depth = computeMethodDepth(owner, method);
+        }
+        return depth;
+    }
+
+    private int computeMethodDepth(String owner, String method) {
+        try (InputStream is = Files.newInputStream(inputRoot.resolve(owner + ".class"))) {
+            ClassReader reader = new ClassReader(is);
+            asmRemapper.collectDirectSupertypes(reader); // May as well whilst we are here, can't hurt.
+            // Tell the LocalVariableFixer to visit the class, this will trigger it to update the methodDepth for each method.
+            reader.accept(new LocalVariableFixer(null, this), 0);
+        } catch(IOException ex) {
+            System.err.println("Failed to compute used locals for: " + owner + "." + method);
+            ex.printStackTrace();
+            return 1;
+        }
+        return methodDepth.getOrDefault(owner + "." + method, 1);
+    }
 
     public static String formatDuration(long elapsedTimeInNs) {
         StringBuilder result = new StringBuilder();
