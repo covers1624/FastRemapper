@@ -69,7 +69,8 @@ public class LocalVariableFixer extends ClassVisitor {
                 } else if (index < (isStatic ? paramWidth : paramWidth + 1)) {
                     name = uniqueLocal("param" + (index - (isStatic ? 0 : 1)));
                 } else {
-                    name = uniqueLocal("var" + index);
+                    name = "var" + index;
+//                    name = uniqueLocal("var" + index);
                 }
 
                 super.visitLocalVariable(name, descriptor, signature, start, end, index);
