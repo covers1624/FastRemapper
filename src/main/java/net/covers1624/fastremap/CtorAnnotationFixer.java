@@ -26,6 +26,7 @@ public class CtorAnnotationFixer extends ClassVisitor {
     public void visitInnerClass(String name, String outerName, String innerName, int access) {
         super.visitInnerClass(name, outerName, innerName, access);
 
+        if ((access & Opcodes.ACC_STATIC) != 0) return; // Static classes are ignored.
         if (innerName == null) return; // Anon classes are ignored.
 
         // Relies on the fact that inner classes have an InnerClass attribute for themselves.
@@ -58,7 +59,7 @@ public class CtorAnnotationFixer extends ClassVisitor {
             nSynthetic = 2;
         } else {
             if (params.length <= 1) return mv; // Ctor does not have any user specified params, thus no annotations.
-            if (!params[0].toString().equals(outerScope)) return mv; // First param must be outer-scope.
+            if (!params[0].getInternalName().equals(outerScope)) return mv; // First param must be outer-scope.
             nSynthetic = 1;
         }
 
@@ -70,7 +71,7 @@ public class CtorAnnotationFixer extends ClassVisitor {
 
             @Override
             public AnnotationVisitor visitParameterAnnotation(int parameter, String descriptor, boolean visible) {
-                if (parameter <= nSynthetic) return null; // <= because 0 is this, 1 is first param index.
+                if (parameter < nSynthetic) return null;
                 return super.visitParameterAnnotation(parameter - nSynthetic, descriptor, visible);
             }
         };
