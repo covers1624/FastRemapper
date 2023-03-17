@@ -10,6 +10,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Type;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,7 +18,6 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Arrays.asList;
 
@@ -65,6 +65,7 @@ public class FastRemapper {
         OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(asList("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes.");
         OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(asList("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
+        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(asList("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(asList("v", "verbose"), "Enables verbose logging.");
 
@@ -128,6 +129,7 @@ public class FastRemapper {
         remapper.fixLocals(fixLocals);
         remapper.fixSource(fixSource);
         remapper.fixParamAnns(fixParamAnns);
+        remapper.fixStrippedCtors(optSet.has(fixStrippedCtors));
 
         remapper.run();
         return 0;
@@ -145,6 +147,7 @@ public class FastRemapper {
     private boolean fixLocals;
     private boolean fixSource;
     private boolean fixParamAnns;
+    private boolean fixStrippedCtors;
 
     @Nullable
     private IMappingFile mappings;
@@ -157,6 +160,8 @@ public class FastRemapper {
     private ASMRemapper asmRemapper;
 
     private final Map<String, Integer> methodDepth = new HashMap<>();
+
+    private final Map<String, Type[]> ctorParams = new HashMap<>();
 
     public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath) {
         this.inputPath = inputPath;
@@ -223,13 +228,15 @@ public class FastRemapper {
     public final boolean isFixLocals() { return fixLocals; }
     public final boolean isFixSource() { return fixSource; }
     public final boolean isFixParamAnns() { return fixParamAnns; }
+    public final boolean isFixStrippedCtors() { return fixStrippedCtors; }
     public final FastRemapper excludes(List<String> excludes) { this.excludes.addAll(excludes); return this; }
     public final FastRemapper strips(List<String> strips) { this.strips.addAll(strips); return this; }
     public final FastRemapper flipMappings(boolean flipMappings) { this.flipMappings = flipMappings; return this; }
     public final FastRemapper verbose(boolean verbose) { this.verbose = verbose; return this; }
     public final FastRemapper fixLocals(boolean fixLocals) { this.fixLocals = fixLocals; return this; }
     public final FastRemapper fixSource(boolean fixSource) { this.fixSource = fixSource; return this; }
-    public final FastRemapper fixParamAnns(boolean fixParamAnn) { this.fixParamAnns = fixParamAnn; return this; }
+    public final FastRemapper fixParamAnns(boolean fixParamAnns) { this.fixParamAnns = fixParamAnns; return this; }
+    public final FastRemapper fixStrippedCtors(boolean fixStrippedCtors) { this.fixStrippedCtors = fixStrippedCtors; return this; }
     // @formatter:on
 
     public void storeMethodDepth(String owner, String name, String desc, int depth) {
@@ -257,6 +264,34 @@ public class FastRemapper {
             return 1;
         }
         return methodDepth.getOrDefault(owner + "." + method, 1);
+    }
+
+    public void storeCtorParams(String owner, Type[] types) {
+        ctorParams.put(owner, types);
+    }
+
+    public Type[] getCtorParams(String owner) {
+        Type[] params = ctorParams.get(owner);
+        if (params == null) {
+            params = computeCtorParams(owner);
+        }
+        return params;
+    }
+
+    private Type[] computeCtorParams(String owner) {
+        // Just yeets some logging, we can in theory make the JRE resolvable if we _really_ wanted to.
+        if (owner.startsWith("java/lang/Object")) return new Type[0];
+
+        try (InputStream is = Files.newInputStream(inputRoot.resolve(owner + ".class"))) {
+            ClassReader reader = new ClassReader(is);
+            asmRemapper.collectDirectSupertypes(reader);
+            // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
+            reader.accept(new StrippedCtorFixer(null, this, true), 0);
+        } catch (IOException ex) {
+            System.err.println("Failed to compute ctor params for: " + owner);
+            return new Type[0];
+        }
+        return ctorParams.getOrDefault(owner, new Type[0]);
     }
 
     public static String formatDuration(long elapsedTimeInNs) {
