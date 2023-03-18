@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * Created by covers1624 on 17/1/23.
  */
-public class LocalVariableFixer extends ClassVisitor {
+public final class LocalVariableFixer extends ClassVisitor {
 
     // Lambda target method -> Outer owning method
     private final Map<String, String> lambdaMap = new HashMap<>();

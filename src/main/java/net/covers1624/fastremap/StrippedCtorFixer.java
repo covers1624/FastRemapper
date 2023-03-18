@@ -1,8 +1,7 @@
 package net.covers1624.fastremap;
 
 import net.covers1624.quack.collection.FastStream;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.*;
 
 import java.util.LinkedList;
@@ -13,11 +12,11 @@ import static org.objectweb.asm.Opcodes.*;
 /**
  * Created by covers1624 on 18/3/23.
  */
-public class StrippedCtorFixer extends ClassVisitor {
-
-    private static final Logger LOGGER = LogManager.getLogger();
+public final class StrippedCtorFixer extends ClassVisitor {
 
     private final FastRemapper fastRemapper;
+    @Nullable
+    private final ASMRemapper remapper;
     // Flag used to know if we need are re-entering another class to compute.
     private final boolean forceCompute;
 
@@ -27,9 +26,10 @@ public class StrippedCtorFixer extends ClassVisitor {
     private String cName;
     private String sName;
 
-    public StrippedCtorFixer(ClassVisitor classVisitor, FastRemapper fastRemapper, boolean forceCompute) {
+    public StrippedCtorFixer(ClassVisitor classVisitor, FastRemapper fastRemapper, @Nullable ASMRemapper remapper, boolean forceCompute) {
         super(ASM9, classVisitor);
         this.fastRemapper = fastRemapper;
+        this.remapper = remapper;
         this.forceCompute = forceCompute;
     }
 
@@ -83,6 +83,8 @@ public class StrippedCtorFixer extends ClassVisitor {
                     null
             );
             if (mv == null) return;
+            assert !forceCompute;
+            assert remapper != null;
 
             Label start = new Label();
             Label end = new Label();
@@ -115,7 +117,7 @@ public class StrippedCtorFixer extends ClassVisitor {
             }
 
             for (FieldNode fNode : finalFields) {
-                String name = fastRemapper.getAsmRemapper().mapFieldName(cName, fNode.name, fNode.desc.getDescriptor());
+                String name = remapper.mapFieldName(cName, fNode.name, fNode.desc.getDescriptor());
                 mv.visitLocalVariable("p_" + name, fNode.desc.getDescriptor(), null, start, end, lvtIdx);
                 lvtIdx += fNode.desc.getSize();
             }

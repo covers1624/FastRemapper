@@ -5,7 +5,7 @@ import org.objectweb.asm.*;
 /**
  * Created by covers1624 on 16/1/23.
  */
-public class CtorAnnotationFixer extends ClassVisitor {
+public final class CtorAnnotationFixer extends ClassVisitor {
 
     private boolean isEnum;
     private String cName;

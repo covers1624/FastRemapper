@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Created by covers1624 on 17/9/21.
  */
-public class ASMRemapper extends Remapper {
+public final class ASMRemapper extends Remapper {
 
     private static final String[] EMPTY = new String[0];
 
@@ -22,9 +22,9 @@ public class ASMRemapper extends Remapper {
     private final Map<String, Map<String, String>> fieldCache = new HashMap<>();
     private final Map<String, Map<String, String>> methodCache = new HashMap<>();
 
-    public ASMRemapper(FastRemapper fastRemapper) {
+    public ASMRemapper(FastRemapper fastRemapper, IMappingFile mappings) {
         this.fastRemapper = fastRemapper;
-        mappings = fastRemapper.getMappings();
+        this.mappings = mappings;
 
         for (IMappingFile.IClass clazz : mappings.getClasses()) {
             fieldCache.put(clazz.getOriginal(), new HashMap<>());
@@ -118,7 +118,7 @@ public class ASMRemapper extends Remapper {
         }
     }
 
-    private String[] extractSupertypes(ClassReader reader) {
+    private static String[] extractSupertypes(ClassReader reader) {
         String superName = reader.getSuperName();
         String[] interfaces = reader.getInterfaces();
 

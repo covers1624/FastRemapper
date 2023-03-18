@@ -8,7 +8,6 @@ import net.covers1624.quack.io.IOUtils;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -28,7 +27,7 @@ import static java.util.Arrays.asList;
 /**
  * Created by covers1624 on 16/9/21.
  */
-public class FastRemapper {
+public final class FastRemapper {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
@@ -110,30 +109,20 @@ public class FastRemapper {
             parser.printHelpOn(System.err);
             return -1;
         }
-        List<String> excludes = optSet.valuesOf(excludeOpt);
-        List<String> strips = optSet.valuesOf(stripOpt);
-
-        boolean flipMappings = optSet.has(flipMappingsOpt);
-
-        boolean verbose = optSet.has(verboseOpt);
-
-        boolean fixLocals = optSet.has(fixLocalsOpt);
-        boolean fixSource = optSet.has(fixSourceOpt);
-        boolean fixParamAnns = optSet.has(fixParamAnnotations);
 
         FastRemapper remapper = new FastRemapper(
                 inputPath,
                 outputPath,
-                mappingsPath
+                mappingsPath,
+                optSet.valuesOf(excludeOpt),
+                optSet.valuesOf(stripOpt),
+                optSet.has(flipMappingsOpt),
+                optSet.has(verboseOpt),
+                optSet.has(fixLocalsOpt),
+                optSet.has(fixSourceOpt),
+                optSet.has(fixParamAnnotations),
+                optSet.has(fixStrippedCtors)
         );
-        remapper.excludes(excludes);
-        remapper.strips(strips);
-        remapper.flipMappings(flipMappings);
-        remapper.verbose(verbose);
-        remapper.fixLocals(fixLocals);
-        remapper.fixSource(fixSource);
-        remapper.fixParamAnns(fixParamAnns);
-        remapper.fixStrippedCtors(optSet.has(fixStrippedCtors));
 
         remapper.run();
         return 0;
@@ -144,32 +133,36 @@ public class FastRemapper {
     private final Path outputPath;
     private final Path mappingsPath;
 
-    private final List<String> excludes = new LinkedList<>();
-    private final List<String> strips = new LinkedList<>();
-    private boolean flipMappings;
-    private boolean verbose;
-    private boolean fixLocals;
-    private boolean fixSource;
-    private boolean fixParamAnns;
-    private boolean fixStrippedCtors;
-
-    private int remapCount;
-
-    @Nullable
-    private IMappingFile mappings;
+    private final List<String> excludes;
+    private final List<String> strips;
+    private final boolean flipMappings;
+    private final boolean verbose;
+    private final boolean fixLocals;
+    private final boolean fixSource;
+    private final boolean fixParamAnns;
+    private final boolean fixStrippedCtors;
 
     private final Map<String, byte[]> inputZip = new LinkedHashMap<>();
-
-    @Nullable
-    private ASMRemapper asmRemapper;
 
     private final Map<String, Integer> methodDepth = new HashMap<>();
     private final Map<String, Type[]> ctorParams = new HashMap<>();
 
-    public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath) {
+    private int remapCount;
+
+    public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath,
+            List<String> excludes, List<String> strips,
+            boolean flipMappings, boolean verbose, boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
         this.inputPath = inputPath;
         this.outputPath = outputPath;
         this.mappingsPath = mappingsPath;
+        this.excludes = new ArrayList<>(excludes);
+        this.strips = new ArrayList<>(strips);
+        this.flipMappings = flipMappings;
+        this.verbose = verbose;
+        this.fixLocals = fixLocals;
+        this.fixSource = fixSource;
+        this.fixParamAnns = fixParamAnns;
+        this.fixStrippedCtors = fixStrippedCtors;
     }
 
     public void run() throws IOException {
@@ -180,11 +173,14 @@ public class FastRemapper {
         LOGGER.info("");
 
         LOGGER.info("Loading mappings..");
+
+        ASMRemapper remapper;
         try (InputStream is = Files.newInputStream(mappingsPath)) {
-            mappings = IMappingFile.load(is);
+            IMappingFile mappings = IMappingFile.load(is);
             if (flipMappings) {
                 mappings = mappings.reverse();
             }
+            remapper = new ASMRemapper(this, mappings);
         }
 
         LOGGER.info("Loading input zip..");
@@ -198,14 +194,12 @@ public class FastRemapper {
             }
         }
 
-        asmRemapper = new ASMRemapper(this);
-
         LOGGER.info("Remapping...");
         long start = System.nanoTime();
         ByteArrayOutputStream zipOut = new ByteArrayOutputStream();
         try (ZipOutputStream outputZip = new ZipOutputStream(zipOut)) {
             for (Map.Entry<String, byte[]> entry : inputZip.entrySet()) {
-                processEntry(entry.getKey(), entry.getValue(), outputZip);
+                processEntry(remapper, entry.getKey(), entry.getValue(), outputZip);
             }
         }
 
@@ -216,7 +210,7 @@ public class FastRemapper {
         LOGGER.info("Done. Remapped {} classes in {}", remapCount, formatDuration(end - start));
     }
 
-    public void processEntry(String name, byte[] data, ZipOutputStream outputZip) throws IOException {
+    public void processEntry(ASMRemapper remapper, String name, byte[] data, ZipOutputStream outputZip) throws IOException {
         // Strip signing data and any additional files.
         if (name.endsWith(".SF") || name.endsWith(".DSA") || name.endsWith(".RSA") || isStripped(name)) return;
 
@@ -234,7 +228,7 @@ public class FastRemapper {
         ClassWriter cw = new ClassWriter(0);
         ClassReader reader = new ClassReader(data);
         cName = reader.getClassName();
-        asmRemapper.collectDirectSupertypes(reader);
+        remapper.collectDirectSupertypes(reader);
 
         ClassVisitor cv = cw;
         // Applied in reverse order to what's shown here, remapper is always first.
@@ -244,16 +238,16 @@ public class FastRemapper {
         if (fixParamAnns) {
             cv = new CtorAnnotationFixer(cv);
         }
-        cv = new ASMClassRemapper(cv, this);
+        cv = new ASMClassRemapper(cv, remapper);
         // Both of these need to load classes in some cases, thus must be run before the remapper.
         if (fixStrippedCtors) {
-            cv = new StrippedCtorFixer(cv, this, false);
+            cv = new StrippedCtorFixer(cv, this, remapper, false);
         }
         if (fixLocals) {
             cv = new LocalVariableFixer(cv, this);
         }
         reader.accept(cv, 0);
-        String mapped = mappings.remapClass(cName);
+        String mapped = remapper.mapType(cName);
         if (verbose) {
             LOGGER.info("Mapping {} -> {}", cName, mapped);
         }
@@ -261,7 +255,7 @@ public class FastRemapper {
         remapCount++;
     }
 
-    private void processManifest(String name, byte[] data, ZipOutputStream outputZip) throws IOException {
+    private static void processManifest(String name, byte[] data, ZipOutputStream outputZip) throws IOException {
         Manifest manifest = new Manifest(new ByteArrayInputStream(data));
         // Yeet signing data.
         manifest.getEntries().clear();
@@ -270,7 +264,7 @@ public class FastRemapper {
         writeEntry(outputZip, name, bos.toByteArray());
     }
 
-    private void writeEntry(ZipOutputStream zos, String name, byte[] data) throws IOException {
+    private static void writeEntry(ZipOutputStream zos, String name, byte[] data) throws IOException {
         ZipEntry entry = new ZipEntry(name);
         entry.setTime(0);
         zos.putNextEntry(entry);
@@ -278,7 +272,7 @@ public class FastRemapper {
         zos.closeEntry();
     }
 
-    public final boolean isExcluded(String path) {
+    private boolean isExcluded(String path) {
         for (String exclude : excludes) {
             if (path.startsWith(exclude)) {
                 return true;
@@ -287,7 +281,7 @@ public class FastRemapper {
         return false;
     }
 
-    public final boolean isStripped(String path) {
+    private boolean isStripped(String path) {
         for (String exclude : strips) {
             if (path.startsWith(exclude)) {
                 return true;
@@ -295,19 +289,6 @@ public class FastRemapper {
         }
         return false;
     }
-
-    // @formatter:off
-    public final IMappingFile getMappings() { return Objects.requireNonNull(mappings); }
-    public final ASMRemapper getAsmRemapper() { return Objects.requireNonNull(asmRemapper); }
-    public final FastRemapper excludes(List<String> excludes) { this.excludes.addAll(excludes); return this; }
-    public final FastRemapper strips(List<String> strips) { this.strips.addAll(strips); return this; }
-    public final FastRemapper flipMappings(boolean flipMappings) { this.flipMappings = flipMappings; return this; }
-    public final FastRemapper verbose(boolean verbose) { this.verbose = verbose; return this; }
-    public final FastRemapper fixLocals(boolean fixLocals) { this.fixLocals = fixLocals; return this; }
-    public final FastRemapper fixSource(boolean fixSource) { this.fixSource = fixSource; return this; }
-    public final FastRemapper fixParamAnns(boolean fixParamAnns) { this.fixParamAnns = fixParamAnns; return this; }
-    public final FastRemapper fixStrippedCtors(boolean fixStrippedCtors) { this.fixStrippedCtors = fixStrippedCtors; return this; }
-    // @formatter:on
 
     public InputStream openInputClass(String cName) throws IOException {
         byte[] data = inputZip.get(cName + ".class");
@@ -332,7 +313,6 @@ public class FastRemapper {
     private int computeMethodDepth(String owner, String method) {
         try (InputStream is = openInputClass(owner)) {
             ClassReader reader = new ClassReader(is);
-            asmRemapper.collectDirectSupertypes(reader); // May as well whilst we are here, can't hurt.
             // Tell the LocalVariableFixer to visit the class, this will trigger it to update the methodDepth for each method.
             reader.accept(new LocalVariableFixer(null, this), 0);
         } catch (IOException ex) {
@@ -361,9 +341,8 @@ public class FastRemapper {
 
         try (InputStream is = openInputClass(owner)) {
             ClassReader reader = new ClassReader(is);
-            asmRemapper.collectDirectSupertypes(reader);
             // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
-            reader.accept(new StrippedCtorFixer(null, this, true), 0);
+            reader.accept(new StrippedCtorFixer(null, this, null, true), 0);
         } catch (IOException ex) {
             System.err.println("Failed to compute ctor params for: " + owner);
             return new Type[0];
@@ -371,7 +350,7 @@ public class FastRemapper {
         return ctorParams.getOrDefault(owner, new Type[0]);
     }
 
-    public static String formatDuration(long elapsedTimeInNs) {
+    private static String formatDuration(long elapsedTimeInNs) {
         StringBuilder result = new StringBuilder();
         if (elapsedTimeInNs > 3600000000000L) {
             result.append(elapsedTimeInNs / 3600000000000L).append("h ");

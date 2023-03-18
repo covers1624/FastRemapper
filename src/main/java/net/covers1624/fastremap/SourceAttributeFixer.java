@@ -6,7 +6,7 @@ import org.objectweb.asm.Opcodes;
 /**
  * Created by covers1624 on 16/1/23.
  */
-public class SourceAttributeFixer extends ClassVisitor {
+public final class SourceAttributeFixer extends ClassVisitor {
 
     private String cName;
 
