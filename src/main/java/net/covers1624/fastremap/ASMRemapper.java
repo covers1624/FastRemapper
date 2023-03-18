@@ -6,8 +6,6 @@ import org.objectweb.asm.commons.Remapper;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -18,15 +16,16 @@ public class ASMRemapper extends Remapper {
 
     private static final String[] EMPTY = new String[0];
 
-    private final Path root;
+    private final FastRemapper fastRemapper;
     private final IMappingFile mappings;
     private final Map<String, String[]> hierarchy = new HashMap<>();
     private final Map<String, Map<String, String>> fieldCache = new HashMap<>();
     private final Map<String, Map<String, String>> methodCache = new HashMap<>();
 
-    public ASMRemapper(Path root, IMappingFile mappings) {
-        this.root = root;
-        this.mappings = mappings;
+    public ASMRemapper(FastRemapper fastRemapper) {
+        this.fastRemapper = fastRemapper;
+        mappings = fastRemapper.getMappings();
+
         for (IMappingFile.IClass clazz : mappings.getClasses()) {
             fieldCache.put(clazz.getOriginal(), new HashMap<>());
             methodCache.put(clazz.getOriginal(), new HashMap<>());
@@ -103,7 +102,7 @@ public class ASMRemapper extends Remapper {
         String[] directSuperTypes = hierarchy.get(cName);
         if (directSuperTypes != null) return directSuperTypes;
 
-        try (InputStream is = Files.newInputStream(root.resolve(cName + ".class"))) {
+        try (InputStream is = fastRemapper.openInputClass(cName)) {
             directSuperTypes = extractSupertypes(new ClassReader(is));
         } catch (IOException e) {
             directSuperTypes = EMPTY;
