@@ -5,6 +5,7 @@ import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
 import net.minecraftforge.srgutils.IMappingFile;
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -288,11 +289,8 @@ public final class FastRemapper {
         return false;
     }
 
-    public InputStream openInputClass(String cName) throws IOException {
-        byte[] data = inputZip.get(cName + ".class");
-        if (data == null) throw new FileNotFoundException(cName);
-
-        return new ByteArrayInputStream(data);
+    public byte @Nullable [] getClassBytes(String cName) {
+        return inputZip.get(cName + ".class");
     }
 
     public void storeMethodDepth(String owner, String name, String desc, int depth) {
@@ -309,15 +307,15 @@ public final class FastRemapper {
     }
 
     private int computeMethodDepth(String owner, String method) {
-        try (InputStream is = openInputClass(owner)) {
-            ClassReader reader = new ClassReader(is);
-            // Tell the LocalVariableFixer to visit the class, this will trigger it to update the methodDepth for each method.
-            reader.accept(new LocalVariableFixer(null, this), 0);
-        } catch (IOException ex) {
-            logger.println("Failed to compute used locals for: " + owner + "." + method);
-            ex.printStackTrace(logger);
+        byte[] bytes = getClassBytes(owner);
+        if (bytes == null) {
+            logger.println("Unable to compute used locals for missing class+method: " + owner + "." + method);
             return 1;
         }
+
+        ClassReader reader = new ClassReader(bytes);
+        // Tell the LocalVariableFixer to visit the class, this will trigger it to update the methodDepth for each method.
+        reader.accept(new LocalVariableFixer(null, this), 0);
         return methodDepth.getOrDefault(owner + "." + method, 1);
     }
 
@@ -337,14 +335,15 @@ public final class FastRemapper {
         // Just yeets some logging, we can in theory make the JRE resolvable if we _really_ wanted to.
         if (owner.startsWith("java/lang/Object")) return new Type[0];
 
-        try (InputStream is = openInputClass(owner)) {
-            ClassReader reader = new ClassReader(is);
-            // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
-            reader.accept(new StrippedCtorFixer(null, this, null, true), 0);
-        } catch (IOException ex) {
-            logger.println("Failed to compute ctor params for: " + owner);
+        byte[] bytes = getClassBytes(owner);
+        if (bytes == null) {
+            logger.println("Unable to compute ctor params for missing class: " + owner);
             return new Type[0];
         }
+
+        ClassReader reader = new ClassReader(bytes);
+        // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
+        reader.accept(new StrippedCtorFixer(null, this, null, true), 0);
         return ctorParams.getOrDefault(owner, new Type[0]);
     }
 

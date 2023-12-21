@@ -4,8 +4,6 @@ import net.minecraftforge.srgutils.IMappingFile;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.commons.Remapper;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -102,11 +100,9 @@ public final class ASMRemapper extends Remapper {
         String[] directSuperTypes = hierarchy.get(cName);
         if (directSuperTypes != null) return directSuperTypes;
 
-        try (InputStream is = fastRemapper.openInputClass(cName)) {
-            directSuperTypes = extractSupertypes(new ClassReader(is));
-        } catch (IOException e) {
-            directSuperTypes = EMPTY;
-        }
+        byte[] bytes = fastRemapper.getClassBytes(cName);
+        directSuperTypes = bytes != null ? extractSupertypes(new ClassReader(bytes)) : EMPTY;
+
         hierarchy.put(cName, directSuperTypes);
         return directSuperTypes;
     }
