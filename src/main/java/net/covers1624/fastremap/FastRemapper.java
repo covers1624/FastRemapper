@@ -6,8 +6,6 @@ import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
 import net.covers1624.quack.io.IOUtils;
 import net.minecraftforge.srgutils.IMappingFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -28,8 +26,6 @@ import static java.util.Arrays.asList;
  * Created by covers1624 on 16/9/21.
  */
 public final class FastRemapper {
-
-    private static final Logger LOGGER = LogManager.getLogger();
 
     public static void main(String[] args) throws Throwable {
         System.exit(mainI(args));
@@ -80,19 +76,19 @@ public final class FastRemapper {
 
         Path inputPath = optSet.valueOf(inputOpt);
         if (Files.notExists(inputPath)) {
-            LOGGER.error("Expected '--input' path to exist.");
+            System.err.println("Expected '--input' path to exist.");
             parser.printHelpOn(System.err);
             return -1;
         }
         if (!Files.isRegularFile(inputPath)) {
-            LOGGER.error("Expected '--input' path to be a file.");
+            System.err.println("Expected '--input' path to be a file.");
             parser.printHelpOn(System.err);
             return -1;
         }
 
         Path outputPath = optSet.valueOf(outputOpt);
         if (Files.exists(outputPath) && !Files.isRegularFile(outputPath)) {
-            LOGGER.error("Expected '--output' to not exist or be a file.");
+            System.err.println("Expected '--output' to not exist or be a file.");
             parser.printHelpOn(System.err);
             return -1;
         }
@@ -100,17 +96,18 @@ public final class FastRemapper {
 
         Path mappingsPath = optSet.valueOf(mappingsOpt);
         if (Files.notExists(mappingsPath)) {
-            LOGGER.error("Expected '--mappings' path to exist.");
+            System.err.println("Expected '--mappings' path to exist.");
             parser.printHelpOn(System.err);
             return -1;
         }
         if (!Files.isRegularFile(mappingsPath)) {
-            LOGGER.error("Expected '--mappings' path to be a file.");
+            System.err.println("Expected '--mappings' path to be a file.");
             parser.printHelpOn(System.err);
             return -1;
         }
 
         FastRemapper remapper = new FastRemapper(
+                System.err,
                 inputPath,
                 outputPath,
                 mappingsPath,
@@ -128,6 +125,7 @@ public final class FastRemapper {
         return 0;
     }
 
+    private final PrintStream logger;
     private final Path inputPath;
 
     private final Path outputPath;
@@ -149,9 +147,10 @@ public final class FastRemapper {
 
     private int remapCount;
 
-    public FastRemapper(Path inputPath, Path outputPath, Path mappingsPath,
+    public FastRemapper(PrintStream logger, Path inputPath, Path outputPath, Path mappingsPath,
             List<String> excludes, List<String> strips,
             boolean flipMappings, boolean verbose, boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
+        this.logger = logger;
         this.inputPath = inputPath;
         this.outputPath = outputPath;
         this.mappingsPath = mappingsPath;
@@ -166,13 +165,13 @@ public final class FastRemapper {
     }
 
     public void run() throws IOException {
-        LOGGER.info("Fast Remapper.");
-        LOGGER.info(" Input   : " + inputPath.toAbsolutePath());
-        LOGGER.info(" Output  : " + outputPath.toAbsolutePath());
-        LOGGER.info(" Mappings: " + mappingsPath.toAbsolutePath());
-        LOGGER.info("");
+        logger.println("Fast Remapper.");
+        logger.println(" Input   : " + inputPath.toAbsolutePath());
+        logger.println(" Output  : " + outputPath.toAbsolutePath());
+        logger.println(" Mappings: " + mappingsPath.toAbsolutePath());
+        logger.println();
 
-        LOGGER.info("Loading mappings..");
+        logger.println("Loading mappings..");
 
         ASMRemapper remapper;
         try (InputStream is = Files.newInputStream(mappingsPath)) {
@@ -183,7 +182,7 @@ public final class FastRemapper {
             remapper = new ASMRemapper(this, mappings);
         }
 
-        LOGGER.info("Loading input zip..");
+        logger.println("Loading input zip..");
         try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(inputPath))) {
             ZipEntry entry;
             ByteArrayOutputStream obuf = new ByteArrayOutputStream(32 * 1024 * 1024); // 32k
@@ -194,7 +193,7 @@ public final class FastRemapper {
             }
         }
 
-        LOGGER.info("Remapping...");
+        logger.println("Remapping...");
         long start = System.nanoTime();
         ByteArrayOutputStream zipOut = new ByteArrayOutputStream();
         try (ZipOutputStream outputZip = new ZipOutputStream(zipOut)) {
@@ -204,10 +203,10 @@ public final class FastRemapper {
         }
 
         // We write the zip into ram as its faster for compression.
-        LOGGER.info("Writing zip..");
+        logger.println("Writing zip..");
         Files.write(outputPath, zipOut.toByteArray());
         long end = System.nanoTime();
-        LOGGER.info("Done. Remapped {} classes in {}", remapCount, formatDuration(end - start));
+        logger.printf("Done. Remapped %d classes in %s\n", remapCount, formatDuration(end - start));
     }
 
     public void processEntry(ASMRemapper remapper, String name, byte[] data, ZipOutputStream outputZip) throws IOException {
@@ -249,7 +248,7 @@ public final class FastRemapper {
         reader.accept(cv, 0);
         String mapped = remapper.mapType(cName);
         if (verbose) {
-            LOGGER.info("Mapping {} -> {}", cName, mapped);
+            logger.printf("Mapping %s -> %s\n", cName, mapped);
         }
         writeEntry(outputZip, mapped + ".class", cw.toByteArray());
         remapCount++;
@@ -316,8 +315,8 @@ public final class FastRemapper {
             // Tell the LocalVariableFixer to visit the class, this will trigger it to update the methodDepth for each method.
             reader.accept(new LocalVariableFixer(null, this), 0);
         } catch (IOException ex) {
-            System.err.println("Failed to compute used locals for: " + owner + "." + method);
-            ex.printStackTrace();
+            logger.println("Failed to compute used locals for: " + owner + "." + method);
+            ex.printStackTrace(logger);
             return 1;
         }
         return methodDepth.getOrDefault(owner + "." + method, 1);
@@ -344,7 +343,7 @@ public final class FastRemapper {
             // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
             reader.accept(new StrippedCtorFixer(null, this, null, true), 0);
         } catch (IOException ex) {
-            System.err.println("Failed to compute ctor params for: " + owner);
+            logger.println("Failed to compute ctor params for: " + owner);
             return new Type[0];
         }
         return ctorParams.getOrDefault(owner, new Type[0]);

@@ -26,8 +26,6 @@ configurations {
 }
 
 dependencies {
-    shadow 'org.apache.logging.log4j:log4j-core:2.17.1'
-
     shadow 'net.covers1624:Quack:0.4.6.68'
 
     shadow 'net.sf.jopt-simple:jopt-simple:5.0.4'
