@@ -4,7 +4,12 @@ plugins {
     id 'maven-publish'
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(8)
+    }
+    withSourcesJar()
+}
 
 group 'net.covers1624'
 archivesBaseName = "FastRemapper"
@@ -42,12 +47,6 @@ jar {
     from file("LICENSE.txt")
 }
 
-task srcJar(type: Jar) {
-    classifier 'sources'
-    from sourceSets.main.allSource
-    from file("LICENSE.txt")
-}
-
 publishing {
     repositories {
         if (System.getenv('MAVEN_PASS')) {
@@ -66,7 +65,6 @@ publishing {
             artifactId project.archivesBaseName
             version project.version
             from components["java"]
-            artifact srcJar
 
             pom {
                 name = archivesBaseName
