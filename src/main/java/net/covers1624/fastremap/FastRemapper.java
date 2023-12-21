@@ -5,7 +5,9 @@ import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
 import net.minecraftforge.srgutils.IMappingFile;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -108,9 +110,6 @@ public final class FastRemapper {
 
         FastRemapper remapper = new FastRemapper(
                 System.err,
-                inputPath,
-                outputPath,
-                mappingsPath,
                 optSet.valuesOf(excludeOpt),
                 optSet.valuesOf(stripOpt),
                 optSet.has(flipMappingsOpt),
@@ -121,15 +120,11 @@ public final class FastRemapper {
                 optSet.has(fixStrippedCtors)
         );
 
-        remapper.run();
+        remapper.run(inputPath, outputPath, mappingsPath);
         return 0;
     }
 
     private final PrintStream logger;
-    private final Path inputPath;
-
-    private final Path outputPath;
-    private final Path mappingsPath;
 
     private final List<String> excludes;
     private final List<String> strips;
@@ -147,13 +142,10 @@ public final class FastRemapper {
 
     private int remapCount;
 
-    public FastRemapper(PrintStream logger, Path inputPath, Path outputPath, Path mappingsPath,
+    public FastRemapper(PrintStream logger,
             List<String> excludes, List<String> strips,
             boolean flipMappings, boolean verbose, boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
         this.logger = logger;
-        this.inputPath = inputPath;
-        this.outputPath = outputPath;
-        this.mappingsPath = mappingsPath;
         this.excludes = new ArrayList<>(excludes);
         this.strips = new ArrayList<>(strips);
         this.flipMappings = flipMappings;
@@ -164,7 +156,7 @@ public final class FastRemapper {
         this.fixStrippedCtors = fixStrippedCtors;
     }
 
-    public void run() throws IOException {
+    public void run(Path inputPath, Path outputPath, Path mappingsPath) throws IOException {
         logger.println("Fast Remapper.");
         logger.println(" Input   : " + inputPath.toAbsolutePath());
         logger.println(" Output  : " + outputPath.toAbsolutePath());
@@ -229,7 +221,18 @@ public final class FastRemapper {
         cName = reader.getClassName();
         remapper.collectDirectSupertypes(reader);
 
-        ClassVisitor cv = cw;
+        ClassVisitor cv = buildTransformTree(remapper, cw);
+        reader.accept(cv, 0);
+        String mapped = remapper.mapType(cName);
+        if (verbose) {
+            logger.printf("Mapping %s -> %s\n", cName, mapped);
+        }
+        writeEntry(outputZip, mapped + ".class", cw.toByteArray());
+        remapCount++;
+    }
+
+    @VisibleForTesting
+    ClassVisitor buildTransformTree(ASMRemapper remapper, ClassVisitor cv) {
         // Applied in reverse order to what's shown here, remapper is always first.
         if (fixSource) {
             cv = new SourceAttributeFixer(cv);
@@ -245,13 +248,7 @@ public final class FastRemapper {
         if (fixLocals) {
             cv = new LocalVariableFixer(cv, this);
         }
-        reader.accept(cv, 0);
-        String mapped = remapper.mapType(cName);
-        if (verbose) {
-            logger.printf("Mapping %s -> %s\n", cName, mapped);
-        }
-        writeEntry(outputZip, mapped + ".class", cw.toByteArray());
-        remapCount++;
+        return cv;
     }
 
     private static void processManifest(String name, byte[] data, ZipOutputStream outputZip) throws IOException {
