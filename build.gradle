@@ -2,7 +2,6 @@ plugins {
     id 'java'
     id 'java-library'
     id 'maven-publish'
-    id 'com.github.johnrengelman.shadow' version '7.0.0'
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(8)
@@ -20,46 +19,26 @@ repositories {
     maven { url "https://maven.minecraftforge.net/" }
 }
 
-configurations {
-    shadow
-    api.extendsFrom shadow
-}
-
 dependencies {
-    shadow 'net.covers1624:Quack:0.4.6.68'
+    api 'net.covers1624:Quack:0.4.6.68'
 
-    shadow 'net.sf.jopt-simple:jopt-simple:5.0.4'
-    shadow 'org.ow2.asm:asm:9.2'
-    shadow('org.ow2.asm:asm-commons:9.2') {
+    api 'net.sf.jopt-simple:jopt-simple:5.0.4'
+    api 'org.ow2.asm:asm:9.2'
+    api('org.ow2.asm:asm-commons:9.2') {
         exclude module: 'asm-tree'
     }
 
-    shadow 'net.minecraftforge:srgutils:0.4.3'
+    api 'net.minecraftforge:srgutils:0.4.3'
 
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
     compileOnly 'org.jetbrains:annotations:22.0.0'
 }
 
-def commonManifest = {
-    attributes 'Main-Class': 'net.covers1624.fastremap.FastRemapper'
-    attributes 'Multi-Release': 'true'
-}
-
 jar {
-    manifest commonManifest
-    from file("LICENSE.txt")
-}
-
-shadowJar {
-    configurations = [project.configurations.shadow]
-    manifest commonManifest
-
-    minimize {
-        exclude(dependency('org.apache.logging.log4j:.*:.*'))
+    manifest {
+        attributes 'Main-Class': 'net.covers1624.fastremap.FastRemapper'
+        attributes 'Multi-Release': 'true'
     }
-
-    exclude 'module-info.class'
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer)
     from file("LICENSE.txt")
 }
 
