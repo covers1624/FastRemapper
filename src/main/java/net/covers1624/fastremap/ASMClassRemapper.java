@@ -5,7 +5,6 @@ import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.MethodRemapper;
 import org.objectweb.asm.commons.Remapper;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -13,13 +12,15 @@ import java.util.List;
  */
 public final class ASMClassRemapper extends ClassRemapper {
 
-    public static final List<Handle> LAMBDA_META_FACTORIES = Arrays.asList(
+    public static final List<Handle> LAMBDA_META_FACTORIES = List.of(
             new Handle(Opcodes.H_INVOKESTATIC, "java/lang/invoke/LambdaMetafactory", "metafactory",
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
-                    false),
+                    false
+            ),
             new Handle(Opcodes.H_INVOKESTATIC, "java/lang/invoke/LambdaMetafactory", "altMetafactory",
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
-                    false)
+                    false
+            )
     );
 
     public ASMClassRemapper(ClassVisitor cv, Remapper remapper) {

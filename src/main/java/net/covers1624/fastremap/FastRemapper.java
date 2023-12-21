@@ -4,7 +4,6 @@ import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
-import net.covers1624.quack.io.IOUtils;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -20,7 +19,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
-import static java.util.Arrays.asList;
+import static java.util.List.of;
 
 /**
  * Created by covers1624 on 16/9/21.
@@ -35,38 +34,38 @@ public final class FastRemapper {
         OptionParser parser = new OptionParser();
         OptionSpec<String> nonOptions = parser.nonOptions();
 
-        OptionSpec<Void> helpOpt = parser.acceptsAll(asList("h", "help"), "Prints this help").forHelp();
+        OptionSpec<Void> helpOpt = parser.acceptsAll(of("h", "help"), "Prints this help").forHelp();
 
-        OptionSpec<Path> inputOpt = parser.acceptsAll(asList("i", "input"), "Sets the input jar.")
+        OptionSpec<Path> inputOpt = parser.acceptsAll(of("i", "input"), "Sets the input jar.")
                 .withRequiredArg()
                 .required()
                 .withValuesConvertedBy(new PathConverter());
 
-        OptionSpec<Path> outputOpt = parser.acceptsAll(asList("o", "output"), "Sets the output jar.")
+        OptionSpec<Path> outputOpt = parser.acceptsAll(of("o", "output"), "Sets the output jar.")
                 .withRequiredArg()
                 .required()
                 .withValuesConvertedBy(new PathConverter());
 
-        OptionSpec<Path> mappingsOpt = parser.acceptsAll(asList("m", "mappings"), "The mappings to use. [Proguard,SRG,TSRG,TSRGv2,Tiny,Tinyv2]")
+        OptionSpec<Path> mappingsOpt = parser.acceptsAll(of("m", "mappings"), "The mappings to use. [Proguard,SRG,TSRG,TSRGv2,Tiny,Tinyv2]")
                 .withRequiredArg()
                 .required()
                 .withValuesConvertedBy(new PathConverter());
 
-        OptionSpec<Void> flipMappingsOpt = parser.acceptsAll(asList("f", "flip"), "Flip the input mappings. (Useful for proguard logs)");
+        OptionSpec<Void> flipMappingsOpt = parser.acceptsAll(of("f", "flip"), "Flip the input mappings. (Useful for proguard logs)");
 
-        OptionSpec<String> excludeOpt = parser.acceptsAll(asList("e", "exclude"), "Excludes a class or package from being remapped. Comma separated. Example: 'com.google.,org.apache.'")
+        OptionSpec<String> excludeOpt = parser.acceptsAll(of("e", "exclude"), "Excludes a class or package from being remapped. Comma separated. Example: 'com.google.,org.apache.'")
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
-        OptionSpec<String> stripOpt = parser.acceptsAll(asList("s", "strip"), "Strip files from the output. Comma separated. Example: 'com/google,org/apache/,some/file.txt'")
+        OptionSpec<String> stripOpt = parser.acceptsAll(of("s", "strip"), "Strip files from the output. Comma separated. Example: 'com/google,org/apache/,some/file.txt'")
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
 
-        OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(asList("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
-        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(asList("fix-source"), "Recomputes source attributes.");
-        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(asList("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
-        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(asList("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
+        OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(of("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
+        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.");
+        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
+        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
 
-        OptionSpec<Void> verboseOpt = parser.acceptsAll(asList("v", "verbose"), "Enables verbose logging.");
+        OptionSpec<Void> verboseOpt = parser.acceptsAll(of("v", "verbose"), "Enables verbose logging.");
 
         OptionSet optSet = parser.parse(args);
         if (optSet.has(helpOpt)) {
@@ -187,7 +186,7 @@ public final class FastRemapper {
             ZipEntry entry;
             ByteArrayOutputStream obuf = new ByteArrayOutputStream(32 * 1024 * 1024); // 32k
             while ((entry = zin.getNextEntry()) != null) {
-                IOUtils.copy(zin, obuf);
+                zin.transferTo(obuf);
                 inputZip.put(entry.getName(), obuf.toByteArray());
                 obuf.reset();
             }
