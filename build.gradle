@@ -28,8 +28,8 @@ dependencies {
     api 'net.covers1624:Quack:0.4.6.68'
 
     api 'net.sf.jopt-simple:jopt-simple:5.0.4'
-    api 'org.ow2.asm:asm:9.2'
-    api('org.ow2.asm:asm-commons:9.2') {
+    api 'org.ow2.asm:asm:9.7'
+    api('org.ow2.asm:asm-commons:9.7') {
         exclude module: 'asm-tree'
     }
 
