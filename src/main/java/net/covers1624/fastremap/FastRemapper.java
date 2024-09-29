@@ -5,7 +5,6 @@ import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
 import net.minecraftforge.srgutils.IMappingFile;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 import org.objectweb.asm.ClassReader;
@@ -14,11 +13,13 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Type;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
@@ -62,6 +63,8 @@ public final class FastRemapper {
         OptionSpec<String> stripOpt = parser.acceptsAll(of("s", "strip"), "Strip files from the output. Comma separated. Example: 'com/google,org/apache/,some/file.txt'")
                 .withRequiredArg()
                 .withValuesSeparatedBy(",");
+
+        OptionSpec<Void> mcBundleOpt = parser.acceptsAll(of("mc-bundle"), "Handle Modern Minecraft server bundles.");
 
         OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(of("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.");
@@ -114,6 +117,7 @@ public final class FastRemapper {
                 optSet.valuesOf(stripOpt),
                 optSet.has(flipMappingsOpt),
                 optSet.has(verboseOpt),
+                optSet.has(mcBundleOpt),
                 optSet.has(fixLocalsOpt),
                 optSet.has(fixSourceOpt),
                 optSet.has(fixParamAnnotations),
@@ -130,6 +134,7 @@ public final class FastRemapper {
     private final List<String> strips;
     private final boolean flipMappings;
     private final boolean verbose;
+    private final boolean mcBundle;
     private final boolean fixLocals;
     private final boolean fixSource;
     private final boolean fixParamAnns;
@@ -144,12 +149,14 @@ public final class FastRemapper {
 
     public FastRemapper(PrintStream logger,
             List<String> excludes, List<String> strips,
-            boolean flipMappings, boolean verbose, boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
+            boolean flipMappings, boolean verbose, boolean mcBundle,
+            boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
         this.logger = logger;
         this.excludes = new ArrayList<>(excludes);
         this.strips = new ArrayList<>(strips);
         this.flipMappings = flipMappings;
         this.verbose = verbose;
+        this.mcBundle = mcBundle;
         this.fixLocals = fixLocals;
         this.fixSource = fixSource;
         this.fixParamAnns = fixParamAnns;
@@ -174,8 +181,57 @@ public final class FastRemapper {
             remapper = new ASMRemapper(this, mappings);
         }
 
+        if (!mcBundle) {
+            loadInput(Files.newInputStream(inputPath));
+            byte[] remappedZip = doRemapping(remapper);
+
+            logger.println("Writing zip..");
+            Files.write(outputPath, remappedZip);
+            logger.println("Done.");
+        } else {
+            String[] segs;
+            logger.println("Opening bundle jar..");
+            try (ZipFile zFile = new ZipFile(inputPath.toFile())) {
+                ZipEntry listEntry = zFile.getEntry("META-INF/versions.list");
+                if (listEntry == null) throw new RuntimeException("Jar is not a Minecraft server bundle.");
+
+                String line = new String(zFile.getInputStream(listEntry).readAllBytes(), StandardCharsets.UTF_8).trim();
+                segs = line.split("\t");
+                if (segs.length != 3) throw new RuntimeException("More than one version?");
+
+                ZipEntry serverJar = zFile.getEntry("META-INF/versions/" + segs[2]);
+                if (serverJar == null) throw new RuntimeException("Server jar does not exists in bundle?");
+
+                loadInput(zFile.getInputStream(serverJar));
+            }
+
+            byte[] output = doRemapping(remapper);
+            segs[0] = Hashing.sha256(output);
+
+            logger.println("Writing bundle har..");
+            try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(inputPath));
+                 ZipOutputStream zout = new ZipOutputStream(Files.newOutputStream(outputPath))) {
+                ZipEntry entry;
+                while ((entry = zin.getNextEntry()) != null) {
+                    if (entry.isDirectory()) continue;
+                    zout.putNextEntry(new ZipEntry(entry.getName()));
+                    if (entry.getName().equals("META-INF/versions.list")) {
+                        zout.write(String.join("\t", segs).getBytes(StandardCharsets.UTF_8));
+                    } else if (entry.getName().equals("META-INF/versions/" + segs[2])) {
+                        zout.write(output);
+                    } else {
+                        zin.transferTo(zout);
+                    }
+                    zout.closeEntry();
+                }
+            }
+            logger.println("Done.");
+        }
+    }
+
+    private void loadInput(InputStream is) throws IOException {
         logger.println("Loading input zip..");
-        try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(inputPath))) {
+        try (ZipInputStream zin = new ZipInputStream(is)) {
             ZipEntry entry;
             ByteArrayOutputStream obuf = new ByteArrayOutputStream(32 * 1024 * 1024); // 32k
             while ((entry = zin.getNextEntry()) != null) {
@@ -184,7 +240,9 @@ public final class FastRemapper {
                 obuf.reset();
             }
         }
+    }
 
+    private byte[] doRemapping(ASMRemapper remapper) throws IOException {
         logger.println("Remapping...");
         long start = System.nanoTime();
         ByteArrayOutputStream zipOut = new ByteArrayOutputStream();
@@ -194,14 +252,12 @@ public final class FastRemapper {
             }
         }
 
-        // We write the zip into ram as its faster for compression.
-        logger.println("Writing zip..");
-        Files.write(outputPath, zipOut.toByteArray());
         long end = System.nanoTime();
-        logger.printf("Done. Remapped %d classes in %s\n", remapCount, formatDuration(end - start));
+        logger.printf("Remapped %d classes in %s\n", remapCount, formatDuration(end - start));
+        return zipOut.toByteArray();
     }
 
-    public void processEntry(ASMRemapper remapper, String name, byte[] data, ZipOutputStream outputZip) throws IOException {
+    private void processEntry(ASMRemapper remapper, String name, byte[] data, ZipOutputStream outputZip) throws IOException {
         // Strip signing data and any additional files.
         if (name.endsWith(".SF") || name.endsWith(".DSA") || name.endsWith(".RSA") || isStripped(name)) return;
 
