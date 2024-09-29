@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'java-library'
     id 'maven-publish'
+    id "com.gradleup.shadow" version "8.3.2"
 }
 
 java {
@@ -50,6 +51,16 @@ jar {
     }
     from file("LICENSE.txt")
 }
+
+shadowJar {
+    configurations = [project.configurations.runtimeClasspath]
+    manifest {
+        attributes 'Main-Class': 'net.covers1624.fastremap.FastRemapper'
+        attributes 'Multi-Release': 'true'
+    }
+    from file("LICENSE.txt")
+}
+assemble.dependsOn shadowJar
 
 publishing {
     repositories {
