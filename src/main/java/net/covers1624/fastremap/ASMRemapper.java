@@ -37,6 +37,11 @@ public final class ASMRemapper extends Remapper {
     }
 
     @Override
+    public String mapRecordComponentName(String owner, String name, String descriptor) {
+        return mapFieldName(owner, name, descriptor);
+    }
+
+    @Override
     public String mapFieldName(String owner, String name, String descriptor) {
         IMappingFile.IClass clazz = mappings.getClass(owner);
         if (clazz == null) return name;
