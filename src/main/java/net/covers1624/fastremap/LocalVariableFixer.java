@@ -105,7 +105,8 @@ public final class LocalVariableFixer extends ClassVisitor {
                         //  One of these will be a 'ALOAD 0' (this) for instance lambdas, we don't bother stripping that here.
                         //  Lambda indy will always load captured vars onto the stack from locals prior to the indy call.
                         int nArgs = Type.getArgumentTypes(descriptor).length;
-                        List<String> vars = localNames.subList(localNames.size() - nArgs, localNames.size());
+                        // If localNames is empty here, we must not have defined any variables before the indy.
+                        List<String> vars = !localNames.isEmpty() ? localNames.subList(localNames.size() - nArgs, localNames.size()) : List.of();
                         lambdaMap.put(tName + tDesc, new OuterLambdaScope(mName + mDesc, List.copyOf(vars)));
                     }
                 }
