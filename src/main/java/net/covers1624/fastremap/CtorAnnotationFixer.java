@@ -1,5 +1,6 @@
 package net.covers1624.fastremap;
 
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.*;
 
 /**
@@ -8,8 +9,8 @@ import org.objectweb.asm.*;
 public final class CtorAnnotationFixer extends ClassVisitor {
 
     private boolean isEnum;
-    private String cName;
-    private String outerScope;
+    private @Nullable String cName;
+    private @Nullable String outerScope;
 
     public CtorAnnotationFixer(ClassVisitor classVisitor) {
         super(Opcodes.ASM9, classVisitor);
@@ -23,7 +24,7 @@ public final class CtorAnnotationFixer extends ClassVisitor {
     }
 
     @Override
-    public void visitInnerClass(String name, String outerName, String innerName, int access) {
+    public void visitInnerClass(String name, @Nullable String outerName, @Nullable String innerName, int access) {
         super.visitInnerClass(name, outerName, innerName, access);
 
         if ((access & Opcodes.ACC_STATIC) != 0) return; // Static classes are ignored.
@@ -62,17 +63,28 @@ public final class CtorAnnotationFixer extends ClassVisitor {
             if (!params[0].getInternalName().equals(outerScope)) return mv; // First param must be outer-scope.
             nSynthetic = 1;
         }
+        int nParams = params.length;
+        int newNParams = nParams - nSynthetic;
 
         return new MethodVisitor(Opcodes.ASM9, mv) {
-            @Override
-            public void visitAnnotableParameterCount(int parameterCount, boolean visible) {
-                super.visitAnnotableParameterCount(parameterCount - nSynthetic, visible);
-            }
+            private boolean shiftedCount = false;
 
             @Override
+            public void visitAnnotableParameterCount(int parameterCount, boolean visible) {
+                if (parameterCount == nParams) {
+                    shiftedCount = true;
+                    parameterCount = newNParams;
+                }
+                super.visitAnnotableParameterCount(parameterCount, visible);
+            }
+
+            @Nullable
+            @Override
             public AnnotationVisitor visitParameterAnnotation(int parameter, String descriptor, boolean visible) {
-                if (parameter < nSynthetic) return null;
-                return super.visitParameterAnnotation(parameter - nSynthetic, descriptor, visible);
+                if (shiftedCount && parameter >= nSynthetic) {
+                    parameter -= nSynthetic;
+                }
+                return super.visitParameterAnnotation(parameter, descriptor, visible);
             }
         };
     }

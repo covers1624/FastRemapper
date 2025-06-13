@@ -68,7 +68,7 @@ public final class FastRemapper {
 
         OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(of("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.");
-        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard. WARN: This may break annotations if they have not been processed by Proguard.");
+        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard.");
         OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(of("v", "verbose"), "Enables verbose logging.");
