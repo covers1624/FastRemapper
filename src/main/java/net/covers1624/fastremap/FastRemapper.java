@@ -30,6 +30,18 @@ import static java.util.List.of;
  */
 public final class FastRemapper {
 
+    private static final String VERSION;
+
+    static {
+        String version = null;
+        var pkg = FastRemapper.class.getPackage();
+        if (pkg != null) {
+            version = pkg.getImplementationVersion();
+        }
+
+        VERSION = version != null ? version : "dev";
+    }
+
     public static void main(String[] args) throws Throwable {
         System.exit(mainI(args));
     }
@@ -164,7 +176,7 @@ public final class FastRemapper {
     }
 
     public void run(Path inputPath, Path outputPath, Path mappingsPath) throws IOException {
-        logger.println("Fast Remapper.");
+        logger.println("Fast Remapper " + VERSION + ".");
         logger.println(" Input   : " + inputPath.toAbsolutePath());
         logger.println(" Output  : " + outputPath.toAbsolutePath());
         logger.println(" Mappings: " + mappingsPath.toAbsolutePath());
