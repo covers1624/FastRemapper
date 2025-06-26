@@ -48,6 +48,9 @@ jar {
     manifest {
         attributes 'Main-Class': 'net.covers1624.fastremap.FastRemapper'
         attributes 'Multi-Release': 'true'
+        attributes 'Class-Path': project.configurations.runtimeClasspath.files
+                .collect { e -> "libs/${e.getName()}" }
+                .join(' ')
         attributes 'Specification-Title': 'FastRemapper'
         attributes 'Specification-Vendor': 'covers1624'
         attributes 'Specification-Version': '1'
@@ -76,6 +79,13 @@ shadowJar {
 }
 assemble.dependsOn shadowJar
 
+tasks.register("makeDist", Zip) {
+    from(project.configurations.runtimeClasspath) {
+        into 'libs/'
+    }
+    from jar
+}
+
 publishing {
     repositories {
         if (System.getenv('MAVEN_PASS')) {
@@ -93,7 +103,9 @@ publishing {
             groupId project.group
             artifactId project.archivesBaseName
             version project.version
+
             from components["java"]
+            artifact makeDist
 
             pom {
                 name = archivesBaseName
