@@ -29,7 +29,7 @@ class TestBase {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         ClassReader cr = new ClassReader(getBytes(clazz));
-        cr.accept(remapper.buildTransformTree(new ASMRemapper(remapper, mappings), new FlagVisitor(new TraceClassVisitor(pw), List.of(flags))), 0);
+        cr.accept(remapper.buildTransformTree(new ASMRemapper(remapper, mappings), cr, new FlagVisitor(new TraceClassVisitor(pw), List.of(flags))), 0);
         return sw.toString();
     }
 

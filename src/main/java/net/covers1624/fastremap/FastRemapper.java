@@ -7,10 +7,7 @@ import joptsimple.util.PathConverter;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Type;
+import org.objectweb.asm.*;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -82,6 +79,7 @@ public final class FastRemapper {
         OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.");
         OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard.");
         OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
+        OptionSpec<Void> fixCanonicalRecordCtorParamNames = parser.acceptsAll(of("fix-record-ctor-param-names"), "Fixes the parameter names for canonical record constructors, ensuring they match the field names.");
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(of("v", "verbose"), "Enables verbose logging.");
 
@@ -133,7 +131,8 @@ public final class FastRemapper {
                 optSet.has(fixLocalsOpt),
                 optSet.has(fixSourceOpt),
                 optSet.has(fixParamAnnotations),
-                optSet.has(fixStrippedCtors)
+                optSet.has(fixStrippedCtors),
+                optSet.has(fixCanonicalRecordCtorParamNames)
         );
 
         remapper.run(inputPath, outputPath, mappingsPath);
@@ -151,6 +150,7 @@ public final class FastRemapper {
     private final boolean fixSource;
     private final boolean fixParamAnns;
     private final boolean fixStrippedCtors;
+    private final boolean fixRecordCtorParamNames;
 
     private final Map<String, byte[]> inputZip = new LinkedHashMap<>();
 
@@ -162,7 +162,7 @@ public final class FastRemapper {
     public FastRemapper(PrintStream logger,
             List<String> excludes, List<String> strips,
             boolean flipMappings, boolean verbose, boolean mcBundle,
-            boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors) {
+            boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors, boolean fixRecordCtorParamNames) {
         this.logger = logger;
         this.excludes = new ArrayList<>(excludes);
         this.strips = new ArrayList<>(strips);
@@ -173,6 +173,7 @@ public final class FastRemapper {
         this.fixSource = fixSource;
         this.fixParamAnns = fixParamAnns;
         this.fixStrippedCtors = fixStrippedCtors;
+        this.fixRecordCtorParamNames = fixRecordCtorParamNames;
     }
 
     public void run(Path inputPath, Path outputPath, Path mappingsPath) throws IOException {
@@ -289,7 +290,7 @@ public final class FastRemapper {
         cName = reader.getClassName();
         remapper.collectDirectSupertypes(reader);
 
-        ClassVisitor cv = buildTransformTree(remapper, cw);
+        ClassVisitor cv = buildTransformTree(remapper, reader, cw);
         reader.accept(cv, 0);
         String mapped = remapper.mapType(cName);
         if (verbose) {
@@ -300,8 +301,11 @@ public final class FastRemapper {
     }
 
     @VisibleForTesting
-    ClassVisitor buildTransformTree(ASMRemapper remapper, ClassVisitor cv) {
+    ClassVisitor buildTransformTree(ASMRemapper remapper, ClassReader reader, ClassVisitor cv) {
         // Applied in reverse order to what's shown here, remapper is always first.
+        if (fixRecordCtorParamNames && reader.getSuperName().equals("java/lang/Record")) {
+            cv = new CanonicalRecordCtorParamNameFixer(cv);
+        }
         if (fixSource) {
             cv = new SourceAttributeFixer(cv);
         }
