@@ -7,7 +7,10 @@ import joptsimple.util.PathConverter;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
-import org.objectweb.asm.*;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Type;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -75,11 +78,29 @@ public final class FastRemapper {
 
         OptionSpec<Void> mcBundleOpt = parser.acceptsAll(of("mc-bundle"), "Handle Modern Minecraft server bundles.");
 
-        OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(of("fix-locals"), "Restores the LocalVariable table, giving each local names again.");
-        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.");
-        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard.");
-        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.");
-        OptionSpec<Void> fixCanonicalRecordCtorParamNames = parser.acceptsAll(of("fix-record-ctor-param-names"), "Fixes the parameter names for canonical record constructors, ensuring they match the field names.");
+        OptionSpec<Void> allFixesOpt = parser.acceptsAll(of("all-fixers"), "Automatically enable all fixers. Use the no- arguments to disable individual fixers.");
+
+        OptionSpec<Void> fixLocalsOpt = parser.acceptsAll(of("fix-locals"), "Restores the LocalVariable table, giving each local names again.")
+                .availableUnless(allFixesOpt);
+        OptionSpec<Void> fixSourceOpt = parser.acceptsAll(of("fix-source"), "Recomputes source attributes.")
+                .availableUnless(allFixesOpt);
+        OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard.")
+                .availableUnless(allFixesOpt);
+        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.")
+                .availableUnless(allFixesOpt);
+        OptionSpec<Void> fixCanonicalRecordCtorParamNames = parser.acceptsAll(of("fix-record-ctor-param-names"), "Fixes the parameter names for canonical record constructors, ensuring they match the field names.")
+                .availableUnless(allFixesOpt);
+
+        OptionSpec<Void> noFixLocalsOpt = parser.acceptsAll(of("no-fix-locals"), "Disables LocalVariable table restoration.")
+                .availableIf(allFixesOpt);
+        OptionSpec<Void> noFixSourceOpt = parser.acceptsAll(of("no-fix-source"), "Disables fixing of source attributes.")
+                .availableIf(allFixesOpt);
+        OptionSpec<Void> noFixParamAnnotations = parser.acceptsAll(of("no-fix-ctor-anns"), "Disables fixing of constructor parameter annotation indexes.")
+                .availableIf(allFixesOpt);
+        OptionSpec<Void> noFixStrippedCtors = parser.acceptsAll(of("no-fix-stripped-ctors"), "Disables restoration of stripped constructors.")
+                .availableIf(allFixesOpt);
+        OptionSpec<Void> noFixCanonicalRecordCtorParamNames = parser.acceptsAll(of("no-fix-record-ctor-param-names"), "Disable fixing of canonical record constructor parameter names.")
+                .availableIf(allFixesOpt);
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(of("v", "verbose"), "Enables verbose logging.");
 
@@ -128,11 +149,11 @@ public final class FastRemapper {
                 optSet.has(flipMappingsOpt),
                 optSet.has(verboseOpt),
                 optSet.has(mcBundleOpt),
-                optSet.has(fixLocalsOpt),
-                optSet.has(fixSourceOpt),
-                optSet.has(fixParamAnnotations),
-                optSet.has(fixStrippedCtors),
-                optSet.has(fixCanonicalRecordCtorParamNames)
+                isSet(optSet, fixLocalsOpt, allFixesOpt, noFixLocalsOpt),
+                isSet(optSet, fixSourceOpt, allFixesOpt, noFixSourceOpt),
+                isSet(optSet, fixParamAnnotations, allFixesOpt, noFixParamAnnotations),
+                isSet(optSet, fixStrippedCtors, allFixesOpt, noFixStrippedCtors),
+                isSet(optSet, fixCanonicalRecordCtorParamNames, allFixesOpt, noFixCanonicalRecordCtorParamNames)
         );
 
         remapper.run(inputPath, outputPath, mappingsPath);
@@ -181,6 +202,13 @@ public final class FastRemapper {
         logger.println(" Input   : " + inputPath.toAbsolutePath());
         logger.println(" Output  : " + outputPath.toAbsolutePath());
         logger.println(" Mappings: " + mappingsPath.toAbsolutePath());
+        logger.println();
+        logger.println("Fixers enabled:");
+        if (fixLocals) logger.println(" - Local Variable Table fixer.");
+        if (fixSource) logger.println(" - Source attribute fixer.");
+        if (fixParamAnns) logger.println(" - Parameter annotation index fixer (ProGuard).");
+        if (fixStrippedCtors) logger.println(" - Stripped constructors for final classes (ProGuard).");
+        if (fixRecordCtorParamNames) logger.println(" - Canonical record constructor parameter renaming.");
         logger.println();
 
         logger.println("Loading mappings..");
@@ -435,5 +463,9 @@ public final class FastRemapper {
         }
 
         return result.toString();
+    }
+
+    private static boolean isSet(OptionSet optSet, OptionSpec<Void> enable, OptionSpec<Void> all, OptionSpec<Void> disable) {
+        return optSet.has(all) && !optSet.has(disable) || optSet.has(enable);
     }
 }
