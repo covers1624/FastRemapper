@@ -42,6 +42,19 @@ public class CanonicalRecordCtorParamNameFixer extends ClassVisitor {
             return mv;
         }
 
+        // Copy the names into a list of 'slots', where wide types take up 2 slots.
+        // It's particularly annoying to work backwards when processing locals to find the parameter index, from the slot.
+        List<String> slottedNames = new ArrayList<>();
+        slottedNames.add("this"); // Unused, marker, spacer.
+        int idx = 0;
+        for (Type type : types) {
+            slottedNames.add(names.get(idx));
+            if (type.getSize() == 2) {
+                slottedNames.add(names.get(idx));
+            }
+            idx++;
+        }
+
         return new MethodVisitor(Opcodes.ASM9, mv) {
             private int pIndex = 0;
 
@@ -52,9 +65,9 @@ public class CanonicalRecordCtorParamNameFixer extends ClassVisitor {
 
             @Override
             public void visitLocalVariable(String name, String descriptor, String signature, Label start, Label end, int index) {
-                var pIdx = index - 1;
-                if (pIdx >= 0 && pIdx < names.size()) {
-                    name = names.get(pIdx);
+                // Index here includes wide local slots.
+                if (index != 0 && index < slottedNames.size()) {
+                    name = slottedNames.get(index);
                 }
                 super.visitLocalVariable(name, descriptor, signature, start, end, index);
             }
