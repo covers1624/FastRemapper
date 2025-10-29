@@ -2,6 +2,7 @@ package net.covers1624.fastremap;
 
 import net.minecraftforge.srgutils.IMappingFile;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Remapper;
 
 import java.util.HashMap;
@@ -19,6 +20,7 @@ public final class ASMRemapper extends Remapper {
     private final Map<String, String[]> hierarchy = new HashMap<>();
     private final Map<String, Map<String, String>> fieldCache = new HashMap<>();
     private final Map<String, Map<String, String>> methodCache = new HashMap<>();
+    private final Map<String, String> annotationCache = new HashMap<>();
 
     public ASMRemapper(FastRemapper fastRemapper, IMappingFile mappings) {
         this.fastRemapper = fastRemapper;
@@ -39,6 +41,28 @@ public final class ASMRemapper extends Remapper {
     @Override
     public String mapRecordComponentName(String owner, String name, String descriptor) {
         return mapFieldName(owner, name, descriptor);
+    }
+
+    @Override
+    public String mapAnnotationAttributeName(String descriptor, String name) {
+        IMappingFile.IClass clazz = mappings.getClass(Type.getType(descriptor).getInternalName());
+        if (clazz == null) return name;
+
+        String mapped = annotationCache.get(descriptor + name);
+        if (mapped != null) return mapped;
+
+        for (IMappingFile.IMethod method : clazz.getMethods()) {
+            if (method.getOriginal().equals(name)) {
+                mapped = method.getMapped();
+                break;
+            }
+        }
+        if (mapped != null) {
+            annotationCache.put(descriptor + name, mapped);
+            return mapped;
+        }
+
+        return name;
     }
 
     @Override
