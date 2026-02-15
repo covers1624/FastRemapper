@@ -28,8 +28,10 @@ class TestBase {
     protected static String transform(Class<?> clazz, FastRemapper remapper, IMappingFile mappings, Flags... flags) {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
-        ClassReader cr = new ClassReader(getBytes(clazz));
-        cr.accept(remapper.buildTransformTree(new ASMRemapper(remapper, mappings), cr, new FlagVisitor(new TraceClassVisitor(pw), List.of(flags))), 0);
+        var bytes = getBytes(clazz);
+        var data = FileData.ClassFileData.create(bytes);
+        ClassReader cr = new ClassReader(data.data());
+        cr.accept(remapper.buildTransformTree(new ASMRemapper(remapper, mappings), cr, new FlagVisitor(new TraceClassVisitor(pw), List.of(flags)), data), 0);
         return sw.toString();
     }
 

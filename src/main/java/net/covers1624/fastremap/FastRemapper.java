@@ -4,6 +4,7 @@ import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import joptsimple.util.PathConverter;
+import net.covers1624.quack.collection.FastStream;
 import net.minecraftforge.srgutils.IMappingFile;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -86,7 +87,7 @@ public final class FastRemapper {
                 .availableUnless(allFixesOpt);
         OptionSpec<Void> fixParamAnnotations = parser.acceptsAll(of("fix-ctor-anns"), "Fixes constructor parameter annotation indexes from Proguard.")
                 .availableUnless(allFixesOpt);
-        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors for classes with final fields, who's Constructors have been stripped by proguard.")
+        OptionSpec<Void> fixStrippedCtors = parser.acceptsAll(of("fix-stripped-ctors"), "Restores constructors that have been stripped by proguard.")
                 .availableUnless(allFixesOpt);
         OptionSpec<Void> fixCanonicalRecordCtorParamNames = parser.acceptsAll(of("fix-record-ctor-param-names"), "Fixes the parameter names for canonical record constructors, ensuring they match the field names.")
                 .availableUnless(allFixesOpt);
@@ -173,10 +174,9 @@ public final class FastRemapper {
     private final boolean fixStrippedCtors;
     private final boolean fixRecordCtorParamNames;
 
-    private final Map<String, byte[]> inputZip = new LinkedHashMap<>();
+    private final Map<String, FileData> inputZip = new LinkedHashMap<>();
 
     private final Map<String, Integer> methodDepth = new HashMap<>();
-    private final Map<String, Type[]> ctorParams = new HashMap<>();
 
     private int remapCount;
 
@@ -207,7 +207,7 @@ public final class FastRemapper {
         if (fixLocals) logger.println(" - Local Variable Table fixer.");
         if (fixSource) logger.println(" - Source attribute fixer.");
         if (fixParamAnns) logger.println(" - Parameter annotation index fixer (ProGuard).");
-        if (fixStrippedCtors) logger.println(" - Stripped constructors for final classes (ProGuard).");
+        if (fixStrippedCtors) logger.println(" - Stripped constructors (ProGuard).");
         if (fixRecordCtorParamNames) logger.println(" - Canonical record constructor parameter renaming.");
         logger.println();
 
@@ -277,7 +277,7 @@ public final class FastRemapper {
             ByteArrayOutputStream obuf = new ByteArrayOutputStream(32 * 1024 * 1024); // 32k
             while ((entry = zin.getNextEntry()) != null) {
                 zin.transferTo(obuf);
-                inputZip.put(entry.getName(), obuf.toByteArray());
+                inputZip.put(entry.getName(), FileData.create(entry.getName(), obuf.toByteArray()));
                 obuf.reset();
             }
         }
@@ -288,7 +288,7 @@ public final class FastRemapper {
         long start = System.nanoTime();
         ByteArrayOutputStream zipOut = new ByteArrayOutputStream();
         try (ZipOutputStream outputZip = new ZipOutputStream(zipOut)) {
-            for (Map.Entry<String, byte[]> entry : inputZip.entrySet()) {
+            for (var entry : inputZip.entrySet()) {
                 processEntry(remapper, entry.getKey(), entry.getValue(), outputZip);
             }
         }
@@ -298,27 +298,28 @@ public final class FastRemapper {
         return zipOut.toByteArray();
     }
 
-    private void processEntry(ASMRemapper remapper, String name, byte[] data, ZipOutputStream outputZip) throws IOException {
+    private void processEntry(ASMRemapper remapper, String name, FileData data, ZipOutputStream outputZip) throws IOException {
         // Strip signing data and any additional files.
         if (name.endsWith(".SF") || name.endsWith(".DSA") || name.endsWith(".RSA") || isStripped(name)) return;
 
         if (name.equals("META-INF/MANIFEST.MF")) {
-            processManifest(name, data, outputZip);
+            processManifest(name, data.data(), outputZip);
             return;
         }
 
         if (!name.endsWith(".class") || isExcluded(name.replace('/', '.'))) {
-            writeEntry(outputZip, name, data);
+            writeEntry(outputZip, name, data.data());
             return;
         }
 
+        var classData = ((FileData.ClassFileData) data);
         String cName;
         ClassWriter cw = new ClassWriter(0);
-        ClassReader reader = new ClassReader(data);
+        ClassReader reader = new ClassReader(classData.data());
         cName = reader.getClassName();
         remapper.collectDirectSupertypes(reader);
 
-        ClassVisitor cv = buildTransformTree(remapper, reader, cw);
+        ClassVisitor cv = buildTransformTree(remapper, reader, cw, classData);
         reader.accept(cv, 0);
         String mapped = remapper.mapType(cName);
         if (verbose) {
@@ -329,7 +330,7 @@ public final class FastRemapper {
     }
 
     @VisibleForTesting
-    ClassVisitor buildTransformTree(ASMRemapper remapper, ClassReader reader, ClassVisitor cv) {
+    ClassVisitor buildTransformTree(ASMRemapper remapper, ClassReader reader, ClassVisitor cv, FileData.ClassFileData classData) {
         // Applied in reverse order to what's shown here, remapper is always first.
         if (fixRecordCtorParamNames && reader.getSuperName().equals("java/lang/Record")) {
             cv = new CanonicalRecordCtorParamNameFixer(cv);
@@ -343,7 +344,7 @@ public final class FastRemapper {
         cv = new ASMClassRemapper(cv, remapper);
         // Both of these need to load classes in some cases, thus must be run before the remapper.
         if (fixStrippedCtors) {
-            cv = new StrippedCtorFixer(cv, this, remapper, false);
+            cv = new StrippedCtorFixer(cv, this, remapper, classData);
         }
         if (fixLocals) {
             cv = new LocalVariableFixer(cv, this);
@@ -387,7 +388,12 @@ public final class FastRemapper {
     }
 
     public byte @Nullable [] getClassBytes(String cName) {
-        return inputZip.get(cName + ".class");
+        return inputZip.get(cName + ".class").data();
+    }
+
+    public @Nullable FileData.ClassFileData getClassData(String cName) {
+        var data = inputZip.get(cName + ".class");
+        return data instanceof FileData.ClassFileData cData ? cData : null;
     }
 
     public void storeMethodDepth(String owner, String name, String desc, int depth) {
@@ -416,32 +422,17 @@ public final class FastRemapper {
         return methodDepth.getOrDefault(owner + "." + method, 1);
     }
 
-    public void storeCtorParams(String owner, Type[] types) {
-        ctorParams.put(owner, types);
-    }
-
     public Type[] getCtorParams(String owner) {
-        Type[] params = ctorParams.get(owner);
-        if (params == null) {
-            params = computeCtorParams(owner);
-        }
-        return params;
-    }
-
-    private Type[] computeCtorParams(String owner) {
-        // Just yeets some logging, we can in theory make the JRE resolvable if we _really_ wanted to.
-        if (owner.startsWith("java/lang/Object")) return new Type[0];
-
-        byte[] bytes = getClassBytes(owner);
-        if (bytes == null) {
+        if (owner.equals("java/lang/Object")) return new Type[0];
+        var data = getClassData(owner);
+        if (data == null) {
             logger.println("Unable to compute ctor params for missing class: " + owner);
             return new Type[0];
         }
-
-        ClassReader reader = new ClassReader(bytes);
-        // Tell the StrippedCtorFixer to visit the class, this will trigger it to update the ctorParams cache.
-        reader.accept(new StrippedCtorFixer(null, this, null, true), 0);
-        return ctorParams.getOrDefault(owner, new Type[0]);
+        return FastStream.of(data.methods())
+                .filter(e->e.name().equals("<init>"))
+                .map(e->e.desc().getArgumentTypes())
+                .lastOrDefault(new Type[0]);
     }
 
     private static String formatDuration(long elapsedTimeInNs) {
