@@ -91,6 +91,8 @@ public final class FastRemapper {
                 .availableUnless(allFixesOpt);
         OptionSpec<Void> fixCanonicalRecordCtorParamNames = parser.acceptsAll(of("fix-record-ctor-param-names"), "Fixes the parameter names for canonical record constructors, ensuring they match the field names.")
                 .availableUnless(allFixesOpt);
+        OptionSpec<Void> fixDeprecated = parser.acceptsAll(of("fix-fix-deprecated"), "Fixes the Deprecated attribute, restoring it if the annotation is presemt.")
+                .availableUnless(allFixesOpt);
 
         OptionSpec<Void> noFixLocalsOpt = parser.acceptsAll(of("no-fix-locals"), "Disables LocalVariable table restoration.")
                 .availableIf(allFixesOpt);
@@ -101,6 +103,8 @@ public final class FastRemapper {
         OptionSpec<Void> noFixStrippedCtors = parser.acceptsAll(of("no-fix-stripped-ctors"), "Disables restoration of stripped constructors.")
                 .availableIf(allFixesOpt);
         OptionSpec<Void> noFixCanonicalRecordCtorParamNames = parser.acceptsAll(of("no-fix-record-ctor-param-names"), "Disable fixing of canonical record constructor parameter names.")
+                .availableIf(allFixesOpt);
+        OptionSpec<Void> noFixDeprecated = parser.acceptsAll(of("no-fix-deprecated"), "Disable fixing of the Deprecated attribute.")
                 .availableIf(allFixesOpt);
 
         OptionSpec<Void> verboseOpt = parser.acceptsAll(of("v", "verbose"), "Enables verbose logging.");
@@ -154,7 +158,8 @@ public final class FastRemapper {
                 isSet(optSet, fixSourceOpt, allFixesOpt, noFixSourceOpt),
                 isSet(optSet, fixParamAnnotations, allFixesOpt, noFixParamAnnotations),
                 isSet(optSet, fixStrippedCtors, allFixesOpt, noFixStrippedCtors),
-                isSet(optSet, fixCanonicalRecordCtorParamNames, allFixesOpt, noFixCanonicalRecordCtorParamNames)
+                isSet(optSet, fixCanonicalRecordCtorParamNames, allFixesOpt, noFixCanonicalRecordCtorParamNames),
+                isSet(optSet, fixDeprecated, allFixesOpt, noFixDeprecated)
         );
 
         remapper.run(inputPath, outputPath, mappingsPath);
@@ -173,6 +178,7 @@ public final class FastRemapper {
     private final boolean fixParamAnns;
     private final boolean fixStrippedCtors;
     private final boolean fixRecordCtorParamNames;
+    private final boolean fixDeprecated;
 
     private final Map<String, FileData> inputZip = new LinkedHashMap<>();
 
@@ -183,7 +189,7 @@ public final class FastRemapper {
     public FastRemapper(PrintStream logger,
             List<String> excludes, List<String> strips,
             boolean flipMappings, boolean verbose, boolean mcBundle,
-            boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors, boolean fixRecordCtorParamNames) {
+            boolean fixLocals, boolean fixSource, boolean fixParamAnns, boolean fixStrippedCtors, boolean fixRecordCtorParamNames, boolean fixDeprecated) {
         this.logger = logger;
         this.excludes = new ArrayList<>(excludes);
         this.strips = new ArrayList<>(strips);
@@ -195,6 +201,7 @@ public final class FastRemapper {
         this.fixParamAnns = fixParamAnns;
         this.fixStrippedCtors = fixStrippedCtors;
         this.fixRecordCtorParamNames = fixRecordCtorParamNames;
+        this.fixDeprecated = fixDeprecated;
     }
 
     public void run(Path inputPath, Path outputPath, Path mappingsPath) throws IOException {
@@ -209,6 +216,7 @@ public final class FastRemapper {
         if (fixParamAnns) logger.println(" - Parameter annotation index fixer (ProGuard).");
         if (fixStrippedCtors) logger.println(" - Stripped constructors (ProGuard).");
         if (fixRecordCtorParamNames) logger.println(" - Canonical record constructor parameter renaming.");
+        if (fixDeprecated) logger.println(" - Deprecated attribute fixer. (ProGuard)");
         logger.println();
 
         logger.println("Loading mappings..");
@@ -343,6 +351,9 @@ public final class FastRemapper {
         }
         cv = new ASMClassRemapper(cv, remapper);
         // Both of these need to load classes in some cases, thus must be run before the remapper.
+        if (fixDeprecated) {
+            cv = new DeprecatedAttributeFixer(cv, classData);
+        }
         if (fixStrippedCtors) {
             cv = new StrippedCtorFixer(cv, this, remapper, classData);
         }
@@ -430,8 +441,8 @@ public final class FastRemapper {
             return new Type[0];
         }
         return FastStream.of(data.methods())
-                .filter(e->e.name().equals("<init>"))
-                .map(e->e.desc().getArgumentTypes())
+                .filter(e -> e.name().equals("<init>"))
+                .map(e -> e.desc().getArgumentTypes())
                 .lastOrDefault(new Type[0]);
     }
 

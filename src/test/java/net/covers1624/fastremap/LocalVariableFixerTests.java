@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class LocalVariableFixerTests extends TestBase {
 
     private final Flags[] FLAGS = { STRIP_FIELDS, STRIP_CTOR, STRIP_CLASS_ATTRS, STRIP_LINE_NUMBERS };
-    private final FastRemapper LOCALS_ONLY = new FastRemapper(System.err, List.of(), List.of(), false, false, false, true, false, false, false, false);
+    private final FastRemapper LOCALS_ONLY = new FastRemapper(System.err, List.of(), List.of(), false, false, false, true, false, false, false, false, false);
 
     private static class TestLocalVariableLambdaCollision {
 

@@ -24,20 +24,31 @@ public sealed interface FileData {
 
     record RegularFileData(byte[] data) implements FileData { }
 
-    record ClassFileData(int access, String cName, @Nullable String superType, String @Nullable [] interfaces, List<FieldData> fields, List<MethodData> methods, byte[] data) implements FileData {
+    record ClassFileData(
+            int access,
+            boolean hasDeprecated,
+            String cName,
+            @Nullable String superType,
+            String @Nullable [] interfaces,
+            List<FieldData> fields,
+            List<MethodData> methods,
+            byte[] data
+    ) implements FileData {
 
         @Override
         public String superType() {
             return requireNonNull(superType, "Doesn't have a supertype.");
         }
 
-        public record FieldData(int access, String name, Type desc, boolean hasConstantValue) { }
-        public record MethodData(int access, String name, Type desc) { }
+        public record FieldData(int access, boolean hasDeprecated, String name, Type desc, boolean hasConstantValue) { }
+
+        public record MethodData(int access, boolean hasDeprecated, String name, Type desc) { }
 
         public static ClassFileData create(byte[] bytes) {
             class Visitor extends ClassVisitor {
 
                 public int access;
+                public boolean hasDeprecated;
                 public @Nullable String name;
                 public @Nullable String superType;
                 public String @Nullable [] interfaces;
@@ -58,16 +69,55 @@ public sealed interface FileData {
 
                 @Nullable
                 @Override
-                public FieldVisitor visitField(int access, String name, String descriptor, String signature, @Nullable Object value) {
-                    fields.add(new FieldData(access, name, Type.getType(descriptor), value != null));
+                public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                    if (descriptor.equals("Ljava/lang/Deprecated;")) {
+                        hasDeprecated = true;
+                    }
                     return null;
                 }
 
                 @Nullable
                 @Override
+                public FieldVisitor visitField(int access, String name, String descriptor, String signature, @Nullable Object value) {
+                    return new FieldVisitor(Opcodes.ASM9) {
+                        boolean hasDeprecated = false;
+
+                        @Nullable
+                        @Override
+                        public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                            if (descriptor.equals("Ljava/lang/Deprecated;")) {
+                                hasDeprecated = true;
+                            }
+                            return null;
+                        }
+
+                        @Override
+                        public void visitEnd() {
+                            fields.add(new FieldData(access, hasDeprecated, name, Type.getType(descriptor), value != null));
+                        }
+                    };
+                }
+
+                @Nullable
+                @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-                    methods.add(new MethodData(access, name, Type.getType(descriptor)));
-                    return null;
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        boolean hasDeprecated = false;
+
+                        @Nullable
+                        @Override
+                        public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                            if (descriptor.equals("Ljava/lang/Deprecated;")) {
+                                hasDeprecated = true;
+                            }
+                            return null;
+                        }
+
+                        @Override
+                        public void visitEnd() {
+                            methods.add(new MethodData(access, hasDeprecated, name, Type.getType(descriptor)));
+                        }
+                    };
                 }
             }
             var reader = new ClassReader(bytes);
@@ -75,6 +125,7 @@ public sealed interface FileData {
             reader.accept(visitor, ClassReader.SKIP_CODE);
             return new ClassFileData(
                     visitor.access,
+                    visitor.hasDeprecated,
                     requireNonNull(visitor.name),
                     visitor.superType,
                     visitor.interfaces,
